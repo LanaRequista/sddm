@@ -152,6 +152,13 @@ namespace SDDM {
 
         Q_ASSERT(getuid() == 0);
         if (!m_backend->authenticate()) {
+            if (m_cancelled) {
+                // the daemon aborted the conversation on purpose:
+                // this is not a login failure, no btmp record
+                exit(Auth::HELPER_CANCELLED);
+                return;
+            }
+
             authenticated(QString());
 
             // write failed login to btmp
@@ -205,6 +212,13 @@ namespace SDDM {
     }
 
     void HelperApp::error(const QString& message, Auth::Error type) {
+        if (m_cancelled) {
+            // errors caused by an aborted conversation must not reach the
+            // daemon: it would treat them as a login failure
+            qDebug() << "Suppressed error message after cancellation:" << message;
+            return;
+        }
+
         SafeDataStream str(m_socket);
         str << Msg::ERROR << message << type;
         str.send();
@@ -218,7 +232,16 @@ namespace SDDM {
         str << Msg::REQUEST << request;
         str.send();
         str.receive();
-        str >> m >> response;
+        str >> m;
+        if (m == Msg::CANCEL) {
+            // the daemon aborted the conversation (the user switched to
+            // another account): return an invalid response so the PAM
+            // conversation fails with PAM_CONV_ERR
+            m_cancelled = true;
+            qDebug() << "Authentication cancelled by the daemon";
+            return response;
+        }
+        str >> response;
         if (m != REQUEST) {
             response = Request();
             qCritical() << "Received a wrong opcode instead of REQUEST:" << m;

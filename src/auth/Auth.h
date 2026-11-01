@@ -67,6 +67,12 @@ namespace SDDM {
             INFO_NONE = 0,
             INFO_UNKNOWN,
             INFO_PASS_CHANGE_REQUIRED,
+            // the fingerprint stage of the PAM conversation is waiting
+            // for a finger (pam_fprintd is verifying)
+            INFO_FINGERPRINT_ACTIVE,
+            // the fingerprint stage ended without a match (fprintd
+            // timeout), the conversation continues with the next factor
+            INFO_FINGERPRINT_TIMEOUT,
             _INFO_LAST
         };
         Q_ENUM(Info)

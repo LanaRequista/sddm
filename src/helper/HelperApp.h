@@ -58,6 +58,8 @@ namespace SDDM {
 
     private:
         qint64 m_id { -1 };
+        // set when the daemon cancelled the running authentication
+        bool m_cancelled { false };
         Backend *m_backend { nullptr };
         UserSession *m_session { nullptr };
         QLocalSocket *m_socket { nullptr };

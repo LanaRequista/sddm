@@ -55,6 +55,17 @@ namespace SDDM {
 
     static Prompt invalidPrompt {};
 
+    // pam_fprintd hints are matched loosely on purpose: the exact wording
+    // depends on the pam_fprintd version and may be translated
+    static const QRegularExpression fingerprintTimeout {
+        QStringLiteral("timed?[- ]?out"),
+        QRegularExpression::CaseInsensitiveOption
+    };
+    static const QRegularExpression fingerprintActive {
+        QStringLiteral("\\bfingerprint\\b"),
+        QRegularExpression::CaseInsensitiveOption
+    };
+
     PamData::PamData() { }
 
     AuthPrompt::Type PamData::detectPrompt(const struct pam_message* msg) const {
@@ -155,11 +166,18 @@ namespace SDDM {
     }
 
     Auth::Info PamData::handleInfo(const struct pam_message* msg, bool predict) {
-        if ((QRegularExpression(QStringLiteral("^Changing password for [^ ]+$"))).match(QString::fromLocal8Bit(msg->msg)).hasMatch()) {
+        QString message = QString::fromLocal8Bit(msg->msg);
+        if ((QRegularExpression(QStringLiteral("^Changing password for [^ ]+$"))).match(message).hasMatch()) {
             if (predict)
                 m_currentRequest = Request(changePassRequest);
             return Auth::INFO_PASS_CHANGE_REQUIRED;
         }
+        // check the timeout first: a timeout message can mention the
+        // fingerprint itself ("fingerprint verification timed out")
+        if (fingerprintTimeout.match(message).hasMatch())
+            return Auth::INFO_FINGERPRINT_TIMEOUT;
+        if (fingerprintActive.match(message).hasMatch())
+            return Auth::INFO_FINGERPRINT_ACTIVE;
         return Auth::INFO_UNKNOWN;
     }
 
