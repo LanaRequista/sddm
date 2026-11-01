@@ -395,6 +395,31 @@ namespace SDDM {
         if (!d->child->waitForFinished(5000))
             d->child->kill();
     }
+
+    void Auth::cancel() {
+        if (d->child->state() == QProcess::NotRunning) {
+            return;
+        }
+
+        // ask the helper to abort the conversation cleanly: while it is
+        // blocked waiting for a prompt answer it reads this opcode instead
+        // of the response and exits with HELPER_CANCELLED
+        if (d->socket && d->socket->state() == QLocalSocket::ConnectedState) {
+            SafeDataStream str(d->socket);
+            str << Msg::CANCEL;
+            str.send();
+        }
+
+        if (d->child->waitForFinished(1000)) {
+            return;
+        }
+
+        // the helper is blocked inside a PAM module (e.g. pam_fprintd
+        // waiting on the reader) and cannot read the socket: kill it.
+        // fprintd releases the sensor when the D-Bus client disconnects.
+        d->child->kill();
+        d->child->waitForFinished(5000);
+    }
 }
 
 #include "Auth.moc"

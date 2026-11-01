@@ -183,6 +183,13 @@ namespace SDDM {
          */
         void stop();
 
+        /**
+         * Cancels a running authentication: asks the helper to abort the
+         * PAM conversation cleanly and falls back to killing it if it is
+         * blocked inside a PAM module.
+         */
+        void cancel();
+
     Q_SIGNALS:
         void autologinChanged();
         void greeterChanged();

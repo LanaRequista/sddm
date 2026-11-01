@@ -144,6 +144,41 @@ namespace SDDM {
                     emit login(socket, user, password, session);
                 }
                 break;
+                case GreeterMessages::LoginInteractive: {
+                    // log message
+                    qDebug() << "Message received from greeter: LoginInteractive";
+
+                    // read username and session; the password, if any,
+                    // will come later with LoginPassword
+                    QString user;
+                    Session session;
+                    input >> user >> session;
+
+                    // emit signal
+                    emit loginInteractive(socket, user, session);
+                }
+                break;
+                case GreeterMessages::LoginPassword: {
+                    // log message
+                    qDebug() << "Message received from greeter: LoginPassword";
+
+                    // read the password typed while the conversation is
+                    // already running
+                    QString password;
+                    input >> password;
+
+                    // emit signal
+                    emit loginPassword(socket, password);
+                }
+                break;
+                case GreeterMessages::CancelLogin: {
+                    // log message
+                    qDebug() << "Message received from greeter: CancelLogin";
+
+                    // emit signal
+                    emit cancelLogin(socket);
+                }
+                break;
                 case GreeterMessages::PowerOff: {
                     // log message
                     qDebug() << "Message received from greeter: PowerOff";

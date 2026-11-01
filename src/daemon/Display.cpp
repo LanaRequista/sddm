@@ -154,6 +154,9 @@ namespace SDDM {
 
         // connect login signal
         connect(m_socketServer, &SocketServer::login, this, &Display::login);
+        connect(m_socketServer, &SocketServer::loginInteractive, this, &Display::loginInteractive);
+        connect(m_socketServer, &SocketServer::loginPassword, this, &Display::loginPassword);
+        connect(m_socketServer, &SocketServer::cancelLogin, this, &Display::cancelLogin);
 
         // connect login result signals
         connect(this, &Display::loginFailed, m_socketServer, &SocketServer::loginFailed);
@@ -344,6 +347,49 @@ namespace SDDM {
         startAuth(user, password, session);
     }
 
+    void Display::loginInteractive(QLocalSocket *socket,
+                                   const QString &user, const Session &session) {
+        m_socket = socket;
+
+        // the sddm user has special privileges that skip password
+        // checking so that we can load the greeter, block ever trying
+        // to log in as the sddm user
+        if (user == QLatin1String("sddm")) {
+            emit loginFailed(m_socket);
+            return;
+        }
+
+        // start the conversation without a password: the fingerprint
+        // stage runs right away, and the password prompt, when it
+        // comes, is held back until the greeter sends one
+        if (startAuth(user, QString(), session))
+            m_passwordQueued = false;
+    }
+
+    void Display::loginPassword(QLocalSocket *socket, const QString &password) {
+        if (!m_auth->isActive()) {
+            qWarning() << "Received a password without a running conversation, ignoring";
+            return;
+        }
+
+        m_socket = socket;
+
+        // queue the password for the password prompt that is already
+        // waiting for it, or for the one that will come later
+        m_passPhrase = password;
+        m_passwordQueued = true;
+        tryCompleteAuthRequest();
+    }
+
+    void Display::cancelLogin(QLocalSocket *socket) {
+        if (!m_auth->isActive())
+            return;
+
+        m_socket = socket;
+        m_cancelling = true;
+        m_auth->cancel();
+    }
+
     QString Display::findGreeterTheme() const {
         QString themeName = mainConfig.Theme.Current.get();
 
@@ -393,6 +439,8 @@ namespace SDDM {
         }
 
         m_passPhrase = password;
+        // legacy logins and autologin always have the password upfront
+        m_passwordQueued = true;
 
         // sanity check
         if (!session.isValid()) {
@@ -519,6 +567,9 @@ namespace SDDM {
     }
 
     void Display::slotAuthInfo(const QString &message, Auth::Info info) {
+        if (m_cancelling)
+            return;
+
         qWarning() << "Authentication information:" << info << message;
 
         if (!m_socket)
@@ -528,6 +579,9 @@ namespace SDDM {
     }
 
     void Display::slotAuthError(const QString &message, Auth::Error error) {
+        if (m_cancelling)
+            return;
+
         qWarning() << "Authentication error:" << error << message;
 
         if (!m_socket)
@@ -539,6 +593,22 @@ namespace SDDM {
     }
 
     void Display::slotHelperFinished(Auth::HelperExitStatus status) {
+        // a cancelled conversation ends either with HELPER_CANCELLED (the
+        // helper read the opcode) or with a crash exit code (it was
+        // killed while blocked inside a PAM module)
+        bool cancelled = m_cancelling || status == Auth::HELPER_CANCELLED;
+        m_cancelling = false;
+
+        // wipe the queued password
+        m_passPhrase = QString();
+        m_passwordQueued = false;
+
+        if (cancelled) {
+            // the conversation was aborted on purpose (user switch):
+            // keep the greeter running, no failure is reported
+            return;
+        }
+
         // Don't restart greeter and display server unless sddm-helper exited
         // with an internal error or the user session finished successfully,
         // we want to avoid greeter from restarting when an authentication
@@ -549,14 +619,35 @@ namespace SDDM {
     }
 
     void Display::slotRequestChanged() {
-        if (m_auth->request()->prompts().length() == 1) {
-            m_auth->request()->prompts()[0]->setResponse(qPrintable(m_passPhrase));
-            m_auth->request()->done();
-        } else if (m_auth->request()->prompts().length() == 2) {
-            m_auth->request()->prompts()[0]->setResponse(qPrintable(m_auth->user()));
-            m_auth->request()->prompts()[1]->setResponse(qPrintable(m_passPhrase));
-            m_auth->request()->done();
+        tryCompleteAuthRequest();
+    }
+
+    void Display::tryCompleteAuthRequest() {
+        AuthRequest *request = m_auth->request();
+        if (request->prompts().isEmpty())
+            return;
+
+        // hold password prompts back until the greeter has sent a password
+        // (interactive conversations only: legacy logins queue it upfront)
+        bool waitingForPassword = false;
+        for (AuthPrompt *prompt : request->prompts()) {
+            switch (prompt->type()) {
+                case AuthPrompt::LOGIN_USER:
+                    prompt->setResponse(m_auth->user().toLocal8Bit());
+                    break;
+                case AuthPrompt::LOGIN_PASSWORD:
+                    if (m_passwordQueued)
+                        prompt->setResponse(m_passPhrase.toLocal8Bit());
+                    else
+                        waitingForPassword = true;
+                    break;
+                default:
+                    break;
+            }
         }
+
+        if (!waitingForPassword)
+            request->done();
     }
 
     void Display::slotSessionStarted(bool success) {

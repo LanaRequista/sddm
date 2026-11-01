@@ -72,6 +72,10 @@ namespace SDDM {
         void login(QLocalSocket *socket,
                    const QString &user, const QString &password,
                    const Session &session);
+        void loginInteractive(QLocalSocket *socket,
+                              const QString &user, const Session &session);
+        void loginPassword(QLocalSocket *socket, const QString &password);
+        void cancelLogin(QLocalSocket *socket);
         void displayServerStarted();
 
     signals:
@@ -88,6 +92,11 @@ namespace SDDM {
         bool startAuth(const QString &user, const QString &password,
                        const Session &session);
 
+        // fill the prompts of the pending request from the known user and
+        // the queued password, and complete the request when no password
+        // prompt is left unanswered
+        void tryCompleteAuthRequest();
+
         void startSocketServerAndGreeter();
         bool handleAutologinFailure();
 
@@ -99,6 +108,8 @@ namespace SDDM {
         int m_sessionTerminalId = 0;
 
         QString m_passPhrase;
+        bool m_passwordQueued { false };
+        bool m_cancelling { false };
         QString m_sessionName;
         QString m_reuseSessionId;
 
