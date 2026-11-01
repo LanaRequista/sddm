@@ -127,6 +127,36 @@ namespace SDDM {
         SocketWriter(d->socket) << quint32(GreeterMessages::Login) << user << password << session;
     }
 
+    void GreeterProxy::loginInteractive(const QString &user, const int sessionIndex) const {
+        if (!d->sessionModel) {
+            // log error
+            qCritical() << "Session model is not set.";
+
+            // return
+            return;
+        }
+
+        // get model index
+        QModelIndex index = d->sessionModel->index(sessionIndex, 0);
+
+        // send command to the daemon; the password, if any, will be sent
+        // later with LoginPassword
+        Session::Type type = static_cast<Session::Type>(d->sessionModel->data(index, SessionModel::TypeRole).toInt());
+        QString name = d->sessionModel->data(index, SessionModel::FileRole).toString();
+        Session session(type, name);
+        SocketWriter(d->socket) << quint32(GreeterMessages::LoginInteractive) << user << session;
+    }
+
+    void GreeterProxy::loginPassword(const QString &password) const {
+        // send the password typed while the conversation is already running
+        SocketWriter(d->socket) << quint32(GreeterMessages::LoginPassword) << password;
+    }
+
+    void GreeterProxy::cancelLogin() const {
+        // tell the daemon to abort the running conversation
+        SocketWriter(d->socket) << quint32(GreeterMessages::CancelLogin);
+    }
+
     void GreeterProxy::connected() {
         // log connection
         qDebug() << "Connected to the daemon.";

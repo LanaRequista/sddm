@@ -36,6 +36,38 @@ Rectangle {
 
     property int sessionIndex: session.index
 
+    // login name the interactive conversation is running for ("" = none);
+    // the conversation keeps the fingerprint reader hot from the start
+    property string conversationUser: ""
+
+    function startConversation(userName) {
+        if (!primaryScreen || userName === "")
+            return;
+        if (conversationUser === userName)
+            return;
+        restartConversation(userName);
+    }
+
+    function restartConversation(userName) {
+        if (!primaryScreen || userName === "")
+            return;
+        // cancel the running conversation, if any; the daemon blocks until
+        // the helper is gone, so the new one is always accepted
+        if (conversationUser !== "")
+            sddm.cancelLogin();
+        conversationUser = userName;
+        sddm.loginInteractive(userName, sessionIndex);
+    }
+
+    Component.onCompleted: startConversation(userModel.lastUser)
+
+    onSessionIndexChanged: {
+        // the session is fixed when the conversation starts: restart it
+        // when the user picks another one
+        if (conversationUser !== "")
+            restartConversation(listView.currentItem.loginName);
+    }
+
     TextConstants { id: textConstants }
 
     Connections {
@@ -46,6 +78,9 @@ Rectangle {
         function onLoginFailed() {
             txtMessage.text = textConstants.loginFailed
             listView.currentItem.password = ""
+            // the failed conversation is gone: start a new one so the
+            // fingerprint reader is hot again
+            restartConversation(listView.currentItem.loginName)
         }
 
         function onInformationMessage(message) {
@@ -85,15 +120,23 @@ Rectangle {
                 icon: model.icon
                 showPassword: model.needsPassword
 
+                property string loginName: model.name
+
                 focus: (listView.currentIndex === index) ? true : false
                 state: (listView.currentIndex === index) ? "active" : ""
 
-                onLogin: sddm.login(model.name, password, sessionIndex);
+                onLogin: {
+                    if (conversationUser === model.name)
+                        sddm.loginPassword(password);
+                    else
+                        sddm.login(model.name, password, sessionIndex);
+                }
 
                 MouseArea {
                     anchors.fill: parent
                     onClicked: {
                         listView.currentIndex = index;
+                        startConversation(model.name);
                         listView.focus = true;
                     }
                 }
@@ -153,6 +196,11 @@ Rectangle {
                         delegate: userDelegate
                         orientation: ListView.Horizontal
                         currentIndex: userModel.lastIndex
+
+                        onCurrentIndexChanged: {
+                            if (currentItem && currentItem.loginName !== conversationUser)
+                                startConversation(currentItem.loginName);
+                        }
 
                         KeyNavigation.backtab: prevUser; KeyNavigation.tab: nextUser
                     }
