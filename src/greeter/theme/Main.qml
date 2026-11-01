@@ -39,12 +39,16 @@ Rectangle {
     // login name the interactive conversation is running for ("" = none);
     // the conversation keeps the fingerprint reader hot from the start
     property string conversationUser: ""
+    // consecutive automatic restarts after failures; bounded so a broken
+    // account or PAM stack cannot loop forever
+    property int failedRestarts: 0
 
     function startConversation(userName) {
         if (!primaryScreen || userName === "")
             return;
         if (conversationUser === userName)
             return;
+        failedRestarts = 0;
         restartConversation(userName);
     }
 
@@ -79,8 +83,11 @@ Rectangle {
             txtMessage.text = textConstants.loginFailed
             listView.currentItem.password = ""
             // the failed conversation is gone: start a new one so the
-            // fingerprint reader is hot again
-            restartConversation(listView.currentItem.loginName)
+            // fingerprint reader is hot again, but stop after a few
+            // consecutive failures (unknown user, broken PAM stack)
+            failedRestarts++
+            if (failedRestarts <= 3)
+                restartConversation(listView.currentItem.loginName)
         }
 
         function onInformationMessage(message) {
@@ -136,7 +143,14 @@ Rectangle {
                     anchors.fill: parent
                     onClicked: {
                         listView.currentIndex = index;
-                        startConversation(model.name);
+                        if (conversationUser === model.name) {
+                            // clicking the current user again is a manual
+                            // retry: reset the failure budget and rearm
+                            failedRestarts = 0;
+                            restartConversation(model.name);
+                        } else {
+                            startConversation(model.name);
+                        }
                         listView.focus = true;
                     }
                 }

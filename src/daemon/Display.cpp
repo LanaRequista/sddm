@@ -343,8 +343,10 @@ namespace SDDM {
             return;
         }
 
-        // authenticate
-        startAuth(user, password, session);
+        // authenticate; report the failure to the greeter instead of
+        // leaving it waiting forever for an answer that will not come
+        if (!startAuth(user, password, session))
+            emit loginFailed(m_socket);
     }
 
     void Display::loginInteractive(QLocalSocket *socket,
@@ -369,6 +371,9 @@ namespace SDDM {
     void Display::loginPassword(QLocalSocket *socket, const QString &password) {
         if (!m_auth->isActive()) {
             qWarning() << "Received a password without a running conversation, ignoring";
+            // don't leave the greeter waiting: the submission was not
+            // consumed by anything
+            emit loginFailed(socket);
             return;
         }
 
