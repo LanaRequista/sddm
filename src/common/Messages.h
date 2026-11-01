@@ -30,7 +30,14 @@ namespace SDDM {
         Reboot,
         Suspend,
         Hibernate,
-        HybridSleep
+        HybridSleep,
+        // fingerprint login: start the PAM conversation for the pre-selected
+        // user before any password is available, queue a password typed while
+        // the conversation is already running, and cancel the running one
+        // when the user switches to another account
+        LoginInteractive,
+        LoginPassword,
+        CancelLogin
     };
 
     enum class DaemonMessages {

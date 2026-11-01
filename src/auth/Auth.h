@@ -87,6 +87,10 @@ namespace SDDM {
             HELPER_OTHER_ERROR,
             HELPER_DISPLAYSERVER_ERROR,
             HELPER_TTY_ERROR,
+            // the helper aborted on request of the daemon; this is not a
+            // failure: the conversation was cancelled by the user switching
+            // to another account, no loginFailed must be emitted for it
+            HELPER_CANCELLED,
         };
         Q_ENUM(HelperExitStatus)
 

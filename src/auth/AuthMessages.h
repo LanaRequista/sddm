@@ -98,6 +98,10 @@ namespace SDDM {
         AUTHENTICATED,
         SESSION_STATUS,
         DISPLAY_SERVER_STARTED,
+        // asks the helper to abort the running authentication cleanly;
+        // read instead of a REQUEST response while the helper is blocked
+        // waiting for a prompt answer
+        CANCEL = 8,
         MSG_LAST,
     };
 
