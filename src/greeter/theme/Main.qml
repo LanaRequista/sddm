@@ -40,6 +40,31 @@ Rectangle {
     // the conversation keeps the fingerprint reader hot from the start
     property string conversationUser: ""
 
+    // user whose conversation was REQUESTED but not started yet; rapid
+    // selection changes (avatar bursts) coalesce here: only the last one
+    // survives the debounce window, so one login attempt is made per
+    // stable selection instead of one per click — each cancel-and-
+    // restart cycle kills a helper and races a late success (19:43)
+    property string pendingConversationUser: ""
+
+    function requestConversation(userName) {
+        if (userName === "")
+            return;
+        pendingConversationUser = userName;
+        conversationDebounce.restart();
+    }
+
+    Timer {
+        id: conversationDebounce
+        interval: 500
+        repeat: false
+        onTriggered: {
+            const userName = pendingConversationUser;
+            pendingConversationUser = "";
+            startConversation(userName);
+        }
+    }
+
     function startConversation(userName) {
         if (!primaryScreen || userName === "")
             return;
@@ -93,6 +118,10 @@ Rectangle {
         function onLoginFailed() {
             txtMessage.text = textConstants.loginFailed
             listView.currentItem.password = ""
+            // the conversation is dead: forget it, so the next avatar
+            // click (even on the same user) really starts a fresh one
+            // (startConversation is idempotent only while one runs)
+            conversationUser = ""
             // no automatic restart: every conversation restart is a REAL
             // PAM attempt, and chained failures lock the account through
             // pam_faillock. The user decides when to retry, by clicking
@@ -157,14 +186,10 @@ Rectangle {
                     anchors.fill: parent
                     onClicked: {
                         listView.currentIndex = index;
-                        // clicking the current user again is the manual
-                        // retry: the failed conversation is replaced by a
-                        // fresh one
-                        if (conversationUser === model.name) {
-                            restartConversation(model.name);
-                        } else {
-                            startConversation(model.name);
-                        }
+                        // every avatar click (or burst of clicks) goes
+                        // through the debounced request: only the last
+                        // stable selection gets a login attempt
+                        requestConversation(model.name);
                         listView.focus = true;
                     }
                 }
@@ -226,8 +251,11 @@ Rectangle {
                         currentIndex: userModel.lastIndex
 
                         onCurrentIndexChanged: {
+                            // keyboard navigation between users goes
+                            // through the same debounced request as
+                            // avatar clicks
                             if (currentItem && currentItem.loginName !== conversationUser)
-                                startConversation(currentItem.loginName);
+                                requestConversation(currentItem.loginName);
                         }
 
                         KeyNavigation.backtab: prevUser; KeyNavigation.tab: nextUser

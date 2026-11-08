@@ -426,6 +426,16 @@ namespace SDDM {
             return;
         }
 
+        // one last look before the bullet: the grace period runs nested
+        // event loops that process the helper's socket messages, so a
+        // login may have WON during the wait (the finger matched right
+        // then); d->authenticated is updated live by that same loop.
+        // Killing here would destroy a successful login — the 19:43 race.
+        if (d->authenticated) {
+            qWarning("Auth: helper authenticated while cancelling, aborting the kill");
+            return;
+        }
+
         // the helper is blocked inside a PAM module (e.g. pam_fprintd
         // waiting on the reader) and cannot read the socket: kill it.
         // fprintd releases the sensor when the D-Bus client disconnects.
