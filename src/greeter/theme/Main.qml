@@ -39,16 +39,12 @@ Rectangle {
     // login name the interactive conversation is running for ("" = none);
     // the conversation keeps the fingerprint reader hot from the start
     property string conversationUser: ""
-    // consecutive automatic restarts after failures; bounded so a broken
-    // account or PAM stack cannot loop forever
-    property int failedRestarts: 0
 
     function startConversation(userName) {
         if (!primaryScreen || userName === "")
             return;
         if (conversationUser === userName)
             return;
-        failedRestarts = 0;
         restartConversation(userName);
     }
 
@@ -97,12 +93,10 @@ Rectangle {
         function onLoginFailed() {
             txtMessage.text = textConstants.loginFailed
             listView.currentItem.password = ""
-            // the failed conversation is gone: start a new one so the
-            // fingerprint reader is hot again, but stop after a few
-            // consecutive failures (unknown user, broken PAM stack)
-            failedRestarts++
-            if (failedRestarts <= 3)
-                restartConversation(listView.currentItem.loginName)
+            // no automatic restart: every conversation restart is a REAL
+            // PAM attempt, and chained failures lock the account through
+            // pam_faillock. The user decides when to retry, by clicking
+            // their avatar.
         }
 
         function onInformationMessage(message) {
@@ -148,20 +142,25 @@ Rectangle {
                 state: (listView.currentIndex === index) ? "active" : ""
 
                 onLogin: {
-                    if (conversationUser === model.name)
-                        sddm.loginPassword(password);
-                    else
+                    if (conversationUser === model.name) {
+                        // never submit an empty password to the running
+                        // conversation: the held prompt would get an empty
+                        // answer and an immediate PAM failure
+                        if (password !== "")
+                            sddm.loginPassword(password);
+                    } else {
                         sddm.login(model.name, password, sessionIndex);
+                    }
                 }
 
                 MouseArea {
                     anchors.fill: parent
                     onClicked: {
                         listView.currentIndex = index;
+                        // clicking the current user again is the manual
+                        // retry: the failed conversation is replaced by a
+                        // fresh one
                         if (conversationUser === model.name) {
-                            // clicking the current user again is a manual
-                            // retry: reset the failure budget and rearm
-                            failedRestarts = 0;
                             restartConversation(model.name);
                         } else {
                             startConversation(model.name);
