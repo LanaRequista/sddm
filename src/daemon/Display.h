@@ -122,6 +122,13 @@ namespace SDDM {
         // with anything but a password the greeter actually sent
         bool m_interactive { false };
         bool m_cancelling { false };
+        // the current login attempt succeeded: the helper is opening the
+        // user session, no cancellation or replacement conversation may
+        // touch it; reset when a new attempt starts or the helper exits
+        bool m_authSucceeded { false };
+        // last session accepted by startAuth(): a password typed after a
+        // failed conversation restarts one for the same user and session
+        Session m_lastSession;
 
         // interactive conversation requested while a cancellation is
         // running, started once the old helper is gone

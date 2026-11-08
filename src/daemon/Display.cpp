@@ -396,10 +396,37 @@ namespace SDDM {
                 m_pendingPassword = password;
                 return;
             }
-            qWarning() << "Received a password without a running conversation, ignoring";
-            // don't leave the greeter waiting: the submission was not
-            // consumed by anything
-            emit loginFailed(socket);
+
+            // the session helper is running: a stray submission after a
+            // successful login is ignored, no new conversation may start
+            if (m_authSucceeded) {
+                qWarning() << "Received a password after a successful login, ignoring";
+                return;
+            }
+
+            // the conversation the greeter was talking to is already
+            // gone (failed PAM attempt). Typing a password is a
+            // deliberate human retry — same as clicking the avatar — so
+            // restart from a fresh interactive conversation for the
+            // same user and session, and queue the password for the
+            // password prompt that will come. The fingerprint stage
+            // runs first, as always; PAM arbitrates the factors.
+            const QString user = m_auth->user();
+            if (password.isEmpty() || user.isEmpty() || !m_lastSession.isValid()) {
+                qWarning() << "Received a password without a running conversation, ignoring";
+                // don't leave the greeter waiting: the submission was
+                // not consumed by anything
+                emit loginFailed(socket);
+                return;
+            }
+            m_socket = socket;
+            if (!startAuth(user, QString(), m_lastSession, true)) {
+                emit loginFailed(socket);
+                return;
+            }
+            m_passPhrase = password;
+            m_passwordQueued = true;
+            tryCompleteAuthRequest();
             return;
         }
 
@@ -413,6 +440,18 @@ namespace SDDM {
     }
 
     void Display::cancelLogin(QLocalSocket *socket) {
+        // a first CancelLogin is already blocking inside Auth::cancel():
+        // a second one from the same burst (rapid user switching) refers
+        // to the very conversation being torn down; calling Auth::cancel()
+        // again here would target whatever helper sits on the shared
+        // QProcess next — including a replacement conversation that
+        // already started, or one that already succeeded
+        if (m_cancelling)
+            return;
+
+        if (m_authSucceeded)
+            return;
+
         if (!m_auth->isActive())
             return;
 
@@ -442,6 +481,14 @@ namespace SDDM {
         m_pendingUser = QString();
         m_pendingPassword = QString();
         m_pendingSession = Session();
+
+        // the cancelled burst turned into a successful login after all:
+        // the session helper is running, a replacement conversation must
+        // not be started against it
+        if (m_authSucceeded) {
+            qWarning() << "Login succeeded while a conversation was queued, dropping the queued conversation";
+            return;
+        }
 
         // the cancellation is expected to have ended the helper; do not
         // race a helper that somehow survived, the greeter retries
@@ -592,11 +639,16 @@ namespace SDDM {
         } else {
             m_auth->setDisplayServerCommand(QStringLiteral());
 	}
+        // keep the session for a password retry after a failed
+        // conversation: it restarts one for the same user and session
+        m_lastSession = session;
+
         // set the credentials only now that the conversation is certain
         // to start, so no failure path can leave an armed empty password
         // behind; legacy logins and autologin always have the password
         // upfront (an empty one included), interactive conversations
         // hold password prompts back until the greeter sends one
+        m_authSucceeded = false;
         m_interactive = interactive;
         m_passwordQueued = !interactive;
         m_passPhrase = password;
@@ -619,6 +671,10 @@ namespace SDDM {
 
         if (success) {
             qDebug() << "Authentication for user " << user << " successful";
+
+            // the helper is opening the user session: from now on no
+            // cancellation or replacement conversation may touch it
+            m_authSucceeded = true;
 
             if (!m_reuseSessionId.isNull()) {
                 OrgFreedesktopLogin1ManagerInterface manager(Logind::serviceName(), Logind::managerPath(), QDBusConnection::systemBus());
@@ -681,6 +737,11 @@ namespace SDDM {
         // killed while blocked inside a PAM module); m_cancelling is
         // reset by cancelLogin() itself, once Auth::cancel() has returned
         bool cancelled = m_cancelling || status == Auth::HELPER_CANCELLED;
+
+        // the session helper is gone (session over, or a new login
+        // attempt resets the flag in startAuth()): the next conversation
+        // starts from a clean state
+        m_authSucceeded = false;
 
         // wipe the queued password
         m_passPhrase = QString();

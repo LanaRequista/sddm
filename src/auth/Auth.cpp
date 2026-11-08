@@ -69,6 +69,7 @@ namespace SDDM {
         bool autologin { false };
         bool greeter { false };
         QProcessEnvironment environment { };
+        bool authenticated { false };
         qint64 id { 0 };
         static qint64 lastId;
     };
@@ -181,6 +182,7 @@ namespace SDDM {
                     QString user;
                     str >> user;
                     if (!user.isEmpty()) {
+                        authenticated = true;
                         auth->setUser(user);
                         Q_EMIT auth->authentication(user, true);
                         str.reset();
@@ -368,6 +370,7 @@ namespace SDDM {
     }
 
     void Auth::start() {
+        d->authenticated = false;
         QStringList args;
         args << QStringLiteral("--socket") << SocketServer::instance()->fullServerName();
         args << QStringLiteral("--id") << QString::number(d->id);
@@ -398,6 +401,15 @@ namespace SDDM {
 
     void Auth::cancel() {
         if (d->child->state() == QProcess::NotRunning) {
+            return;
+        }
+
+        // the helper already authenticated and is about to open the user
+        // session: cancelling at this point would kill a login that
+        // succeeded — let it run, the greeter is stopped when the
+        // session starts
+        if (d->authenticated) {
+            qWarning("Auth: cancel requested after successful authentication, ignoring");
             return;
         }
 
