@@ -71,7 +71,17 @@ namespace SDDM {
     AuthPrompt::Type PamData::detectPrompt(const struct pam_message* msg) const {
         if (msg->msg_style == PAM_PROMPT_ECHO_OFF) {
             QString message = QString::fromLocal8Bit(msg->msg);
-            if ((QRegularExpression(QStringLiteral("\\bpassword\\b"), QRegularExpression::CaseInsensitiveOption)).match(message).hasMatch()) {
+            // pam_unix localizes its login prompt ("Mot de passe", "Passwort"...)
+            // so the match must be as loose as the fprintd hints: on a
+            // non-English system a narrow "\bpassword\b" classified the
+            // localized prompt as UNKNOWN, which the daemon auto-answers
+            // with an empty string instead of holding it for the greeter
+            // — the password sequence could never engage
+            static const QRegularExpression passwordPrompt {
+                QStringLiteral("\\bpassword\\b|\\bmot de passe\\b|\\bpassphrase\\b|\\bpasswort\\b"),
+                QRegularExpression::CaseInsensitiveOption
+            };
+            if (passwordPrompt.match(message).hasMatch()) {
                 if ((QRegularExpression(QStringLiteral("\\b(re-?(enter|type)|again|confirm|repeat)\\b"), QRegularExpression::CaseInsensitiveOption)).match(message).hasMatch()) {
                     return AuthPrompt::CHANGE_REPEAT;
                 }
