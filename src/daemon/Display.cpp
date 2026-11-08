@@ -316,6 +316,11 @@ namespace SDDM {
 
         m_auth->stop();
 
+        // a queued replacement conversation is meaningless once the
+        // display stops
+        m_pendingInteractive = false;
+        m_pendingPassword = QString();
+
         // stop socket server
         m_socketServer->stop();
 
@@ -361,15 +366,36 @@ namespace SDDM {
             return;
         }
 
+        // a cancellation is running: Auth::cancel() blocks on nested
+        // event loops, so a LoginInteractive following a CancelLogin in
+        // the same burst can be handled here re-entrantly. Queue the
+        // request and start it once the old helper is gone, instead of
+        // losing it to the startAuth() guard (or racing the still-dying
+        // helper on the shared QProcess)
+        if (m_cancelling) {
+            m_pendingInteractive = true;
+            m_pendingUser = user;
+            m_pendingSession = session;
+            m_pendingSocket = socket;
+            return;
+        }
+
         // start the conversation without a password: the fingerprint
         // stage runs right away, and the password prompt, when it
         // comes, is held back until the greeter sends one
-        if (startAuth(user, QString(), session))
-            m_passwordQueued = false;
+        if (!startAuth(user, QString(), session, true))
+            emit loginFailed(m_socket);
     }
 
     void Display::loginPassword(QLocalSocket *socket, const QString &password) {
         if (!m_auth->isActive()) {
+            // the password targets the interactive conversation queued
+            // while a cancellation is running: keep it for that one
+            if (m_cancelling && m_pendingInteractive) {
+                m_socket = socket;
+                m_pendingPassword = password;
+                return;
+            }
             qWarning() << "Received a password without a running conversation, ignoring";
             // don't leave the greeter waiting: the submission was not
             // consumed by anything
@@ -393,6 +419,52 @@ namespace SDDM {
         m_socket = socket;
         m_cancelling = true;
         m_auth->cancel();
+        // m_cancelling stays true until here, so the helper exit that
+        // slotHelperFinished() saw during the nested event loops was
+        // treated as a cancellation
+        m_cancelling = false;
+
+        // start the interactive conversation that was queued while the
+        // old one was being cancelled, if any
+        startPendingInteractive();
+    }
+
+    void Display::startPendingInteractive() {
+        if (!m_pendingInteractive)
+            return;
+
+        m_pendingInteractive = false;
+
+        QLocalSocket *socket = m_pendingSocket;
+        const QString user = m_pendingUser;
+        const QString password = m_pendingPassword;
+        const Session session = m_pendingSession;
+        m_pendingUser = QString();
+        m_pendingPassword = QString();
+        m_pendingSession = Session();
+
+        // the cancellation is expected to have ended the helper; do not
+        // race a helper that somehow survived, the greeter retries
+        if (m_auth->isActive()) {
+            qWarning() << "Cancelled authentication still active, not starting the queued conversation";
+            if (socket)
+                emit loginFailed(socket);
+            return;
+        }
+
+        if (!startAuth(user, QString(), session, true)) {
+            if (socket)
+                emit loginFailed(socket);
+            return;
+        }
+
+        // a password typed while the previous conversation was being
+        // cancelled: queue it for the conversation just started
+        if (!password.isEmpty()) {
+            m_passPhrase = password;
+            m_passwordQueued = true;
+            tryCompleteAuthRequest();
+        }
     }
 
     QString Display::findGreeterTheme() const {
@@ -436,16 +508,13 @@ namespace SDDM {
         return false;
     }
 
-    bool Display::startAuth(const QString &user, const QString &password, const Session &session) {
+    bool Display::startAuth(const QString &user, const QString &password,
+                            const Session &session, bool interactive) {
 
         if (m_auth->isActive()) {
             qWarning() << "Existing authentication ongoing, aborting";
             return false;
         }
-
-        m_passPhrase = password;
-        // legacy logins and autologin always have the password upfront
-        m_passwordQueued = true;
 
         // sanity check
         if (!session.isValid()) {
@@ -523,6 +592,15 @@ namespace SDDM {
         } else {
             m_auth->setDisplayServerCommand(QStringLiteral());
 	}
+        // set the credentials only now that the conversation is certain
+        // to start, so no failure path can leave an armed empty password
+        // behind; legacy logins and autologin always have the password
+        // upfront (an empty one included), interactive conversations
+        // hold password prompts back until the greeter sends one
+        m_interactive = interactive;
+        m_passwordQueued = !interactive;
+        m_passPhrase = password;
+
         m_auth->setUser(user);
         if (m_reuseSessionId.isNull()) {
             m_auth->setSession(session.exec());
@@ -600,19 +678,28 @@ namespace SDDM {
     void Display::slotHelperFinished(Auth::HelperExitStatus status) {
         // a cancelled conversation ends either with HELPER_CANCELLED (the
         // helper read the opcode) or with a crash exit code (it was
-        // killed while blocked inside a PAM module)
+        // killed while blocked inside a PAM module); m_cancelling is
+        // reset by cancelLogin() itself, once Auth::cancel() has returned
         bool cancelled = m_cancelling || status == Auth::HELPER_CANCELLED;
-        m_cancelling = false;
 
         // wipe the queued password
         m_passPhrase = QString();
         m_passwordQueued = false;
+        m_interactive = false;
 
         if (cancelled) {
             // the conversation was aborted on purpose (user switch):
-            // keep the greeter running, no failure is reported
+            // keep the greeter running, no failure is reported; the
+            // replacement conversation, if any, is started from
+            // cancelLogin() once this helper is gone
             return;
         }
+
+        // a queued replacement conversation belongs to a cancellation; a
+        // conversation that failed on its own is restarted by the greeter
+        // on user action, drop any stale request
+        m_pendingInteractive = false;
+        m_pendingPassword = QString();
 
         // Don't restart greeter and display server unless sddm-helper exited
         // with an internal error or the user session finished successfully,
@@ -641,7 +728,10 @@ namespace SDDM {
                     prompt->setResponse(m_auth->user().toLocal8Bit());
                     break;
                 case AuthPrompt::LOGIN_PASSWORD:
-                    if (m_passwordQueued)
+                    // an interactive conversation never answers a password
+                    // prompt without a password actually sent by the
+                    // greeter, so an empty queued phrase cannot leak to PAM
+                    if (m_passwordQueued && !(m_interactive && m_passPhrase.isEmpty()))
                         prompt->setResponse(m_passPhrase.toLocal8Bit());
                     else
                         waitingForPassword = true;

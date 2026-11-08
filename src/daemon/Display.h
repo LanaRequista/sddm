@@ -89,13 +89,21 @@ namespace SDDM {
         QString findGreeterTheme() const;
         bool findSessionEntry(const QStringList &dirPaths, const QString &name) const;
 
+        // start an authentication; in an interactive conversation the
+        // password prompts are held back until the greeter sends one,
+        // legacy logins and autologin submit what they were given upfront
         bool startAuth(const QString &user, const QString &password,
-                       const Session &session);
+                       const Session &session, bool interactive = false);
 
         // fill the prompts of the pending request from the known user and
         // the queued password, and complete the request when no password
         // prompt is left unanswered
         void tryCompleteAuthRequest();
+
+        // start the interactive conversation queued while a cancellation
+        // was running (CancelLogin and LoginInteractive arrive in the same
+        // burst, and the cancel blocks the daemon on nested event loops)
+        void startPendingInteractive();
 
         void startSocketServerAndGreeter();
         bool handleAutologinFailure();
@@ -109,7 +117,19 @@ namespace SDDM {
 
         QString m_passPhrase;
         bool m_passwordQueued { false };
+        // the running conversation is interactive (started by the greeter
+        // without a password): its password prompts are never answered
+        // with anything but a password the greeter actually sent
+        bool m_interactive { false };
         bool m_cancelling { false };
+
+        // interactive conversation requested while a cancellation is
+        // running, started once the old helper is gone
+        bool m_pendingInteractive { false };
+        QString m_pendingUser;
+        QString m_pendingPassword;
+        Session m_pendingSession;
+        QPointer<QLocalSocket> m_pendingSocket;
         QString m_sessionName;
         QString m_reuseSessionId;
 
