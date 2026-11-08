@@ -63,7 +63,22 @@ Rectangle {
         sddm.loginInteractive(userName, sessionIndex);
     }
 
-    Component.onCompleted: startConversation(userModel.lastUser)
+    Component.onCompleted: {
+        startConversation(userModel.lastUser)
+        // lastUser can be empty (fresh install, unreadable or absent state
+        // file): fall back to the preselected user, once its delegate exists
+        startupConversation.start()
+    }
+
+    Timer {
+        id: startupConversation
+        interval: 100
+        repeat: false
+        onTriggered: {
+            if (conversationUser === "" && listView.currentItem)
+                startConversation(listView.currentItem.loginName)
+        }
+    }
 
     onSessionIndexChanged: {
         // the session is fixed when the conversation starts: restart it
