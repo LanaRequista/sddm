@@ -58,11 +58,11 @@ namespace SDDM {
     // pam_fprintd hints are matched loosely on purpose: the exact wording
     // depends on the pam_fprintd version and may be translated
     static const QRegularExpression fingerprintTimeout {
-        QStringLiteral("timed?[- ]?out"),
+        QStringLiteral("timed?[- ]?out|délai|expiré"),
         QRegularExpression::CaseInsensitiveOption
     };
     static const QRegularExpression fingerprintActive {
-        QStringLiteral("\\bfingerprint\\b"),
+        QStringLiteral("\\bfingerprint\\b|empreinte|doigt"),
         QRegularExpression::CaseInsensitiveOption
     };
 
