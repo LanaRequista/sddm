@@ -69,31 +69,27 @@ namespace SDDM {
     PamData::PamData() { }
 
     AuthPrompt::Type PamData::detectPrompt(const struct pam_message* msg) const {
+        // PAM's msg_style is the language-invariant code: a hidden prompt
+        // is a request for a secret, a visible one for a non-secret
+        // identity, whatever the localized wording. Classifying by words
+        // broke every non-English system: pam_unix's "Mot de passe :"
+        // was typed UNKNOWN and auto-answered empty, killing the
+        // conversation before any typed password could reach it.
+        // At login the only hidden prompt is the password: wording is
+        // consulted just to tell the change-password probes apart.
         if (msg->msg_style == PAM_PROMPT_ECHO_OFF) {
             QString message = QString::fromLocal8Bit(msg->msg);
-            // pam_unix localizes its login prompt ("Mot de passe", "Passwort"...)
-            // so the match must be as loose as the fprintd hints: on a
-            // non-English system a narrow "\bpassword\b" classified the
-            // localized prompt as UNKNOWN, which the daemon auto-answers
-            // with an empty string instead of holding it for the greeter
-            // — the password sequence could never engage
-            static const QRegularExpression passwordPrompt {
-                QStringLiteral("\\bpassword\\b|\\bmot de passe\\b|\\bpassphrase\\b|\\bpasswort\\b"),
-                QRegularExpression::CaseInsensitiveOption
-            };
-            if (passwordPrompt.match(message).hasMatch()) {
-                if ((QRegularExpression(QStringLiteral("\\b(re-?(enter|type)|again|confirm|repeat)\\b"), QRegularExpression::CaseInsensitiveOption)).match(message).hasMatch()) {
-                    return AuthPrompt::CHANGE_REPEAT;
-                }
-                else if ((QRegularExpression(QStringLiteral("\\bnew\\b"), QRegularExpression::CaseInsensitiveOption)).match(message).hasMatch()) {
-                    return AuthPrompt::CHANGE_NEW;
-                }
-                else if ((QRegularExpression(QStringLiteral("\\b(old|current)\\b"), QRegularExpression::CaseInsensitiveOption)).match(message).hasMatch()) {
-                    return AuthPrompt::CHANGE_CURRENT;
-                }
-                else {
-                    return AuthPrompt::LOGIN_PASSWORD;
-                }
+            if ((QRegularExpression(QStringLiteral("\\b(re-?(enter|type)|again|confirm|repeat)\\b"), QRegularExpression::CaseInsensitiveOption)).match(message).hasMatch()) {
+                return AuthPrompt::CHANGE_REPEAT;
+            }
+            else if ((QRegularExpression(QStringLiteral("\\bnew\\b"), QRegularExpression::CaseInsensitiveOption)).match(message).hasMatch()) {
+                return AuthPrompt::CHANGE_NEW;
+            }
+            else if ((QRegularExpression(QStringLiteral("\\b(old|current)\\b"), QRegularExpression::CaseInsensitiveOption)).match(message).hasMatch()) {
+                return AuthPrompt::CHANGE_CURRENT;
+            }
+            else {
+                return AuthPrompt::LOGIN_PASSWORD;
             }
         }
         else {
