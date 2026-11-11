@@ -1,107 +1,36 @@
-## INTRODUCTION
+Histoire :
+=========
+Ce projet est né d'une insatisfaction concernant l'authentification via capteur d'empreinte sous Plasma/KDE ainsi que l'utilisation en mode découverte de Mistral AI comme agent de code.
+L'authentification est basée sur SDDM qui gère la fenêtre d'accueil où est choisi l'utilisateur et lui est demandé de s'authentifier et de PAM qui est la bibliothèque validant ou non les informations de sécurité envoyées.
+Il y a donc un dialogue qui est engagé entre SDDM et PAM.
+La frustration provient des points suivants :
+1) il faut faire entrée pour que l'empreinte soit prise en compte
+2) il y a un timeout de la cession de reconnaissance d'empreinte
+3) le choix du type d'authentification est séquentiel alors qu'il devrait être possible en parallèle
 
-[![IRC Network](https://img.shields.io/badge/irc-freenode-blue.svg "IRC Freenode")](https://webchat.freenode.net/?channels=sddm)
+Objet du projet
+===============
+Modifier la façon dont l'authentification est gérée afin que le choix du type d'authentification soit transparent.
+L'utilisateur doit pouvoir commencer à taper son mot de passe mais se souvenir qu'il a la biométrie disponible sur ce PC et continuer avec cette dernière possibilité.
+Inversement, se rendre compte que le capteur d'empreinte ne fonctionne pas bien (capteur sale par exemple) et continuer en choisissant de taper son mot de passe.
 
-SDDM is a modern display manager for X11 and Wayland sessions aiming to
-be fast, simple and beautiful.
-It uses modern technologies like QtQuick, which in turn gives the designer the ability to
-create smooth, animated user interfaces.
+Ce projet est aussi pour moi l'opportunité d'apprendre à utiliser de façon intelligente l'aide agentique IA afin de compenser un manque d'agilité dans le code ainsi qu'un manque de temps à consacrer aux projets open source, bien que ce soit pourtant une envie très ancienne et correspondant profondément à mes principes et valeurs.
+L'utilisation de l'IA je l'espère permettra à des personnes qui comme moi on une formation sérieuse en informatique (modélisation, langage, connaissance technique théoriques) mais n'ont pas l'expérience suffisante ou la possibilité de consacrer le temps nécessaire pour payer le ticket d'entrée qui est très élevé en ce domaine.
 
-SDDM is extremely themeable. We put no restrictions on the user interface design,
-it is completely up to the designer. We simply provide a few callbacks to the user interface
-which can be used for authentication, suspend etc.
+Difficulté du projet :
+====================
+la problématique principale est que la construction du dialogue entre SDDM et PAM se fasse via une ouverture de cession qui est séquentielle.
+Cela touche à l'architecture même du processus plasma d'authentification.
+J'ai pris les deux orientation alternatives et même complémentaires à terme suivantes :
+1) raccourcir la séquence de reconnaissance d'empreinte qui et outrageusement grande actuellement (30s) et proposer un cycle rapide en pointillé d'ouverture de séquence de reconnaissance d'empreinte que quelques millisecondes (avec un paramétrage de calibrage) et proposer un délai de relance de la séquence d'empreinte via un délai rechargeable tant que l'utilisateur tape quelque chose dans la zone "mot de passe".
+2) Lancer deux PAM concurrents :
+   - l'un écoutant le capteur
+   - l'autre écoutant le clavier
+le premier des deux PAM ouverts qui réussit ouvre la cession plasma.
 
-To further ease theme creation we provide some premade components like a textbox,
-a combox etc.
+3) optionnel à valider par la pratique si c'est intéressant:
+intégration proprement dans SDDM de façon que n'importe quel thème construit dessus pourra réutiliser de façon transparente les améliorations :
+   - usage d'un écran d'accueil qui change selon le type d'authentification utilisé
+   - utilisation d'un logo empreinte ou clavier pour signifier à l'utilisateur ce qui est actuellement écouté
 
-There are a few sample themes distributed with SDDM.
-They can be used as a starting point for new themes.
-
-## SCREENSHOTS
-
-![sample screenshot](https://raw.github.com/sddm/sddm/master/src/greeter/theme/maui.jpg)
-
-## VIDEOS
-
-* [Video background](https://www.youtube.com/watch?v=kKwz2FQcE3c)
-* [Maui theme 1](https://www.youtube.com/watch?v=-0d1wkcU9DU)
-* [Maui theme 2](https://www.youtube.com/watch?v=dJ28mrOeuNA)
-
-## RESOURCES
-
-* [Issue tracker](https://github.com/sddm/sddm/issues)
-* [Wiki](https://github.com/sddm/sddm/wiki)
-* [Mailing List](https://groups.google.com/group/sddm-devel)
-* IRC channel `#sddm` on [chat.freenode.net](https://webchat.freenode.net?channels=sddm)
-
-## INSTALLATION
-
-Qt >= 5.15.0 is required to use SDDM.
-
-SDDM runs the greeter as a system user named "sddm" whose home directory needs
-to be set to `/var/lib/sddm`.
-
-If pam and systemd are available, the greeter will go through logind
-which will give it access to drm devices.
-
-Distributions without pam and systemd will need to put the "sddm" user
-into the "video" group, otherwise errors regarding GL and drm devices
-might be experienced.
-
-## VIRTUAL TERMINALS
-
-SDDM is assumed to start at the tty specified by the cmake variable
-SDDM_INITIAL_VT which is an integer and defaults to 1.
-
-If SDDM_INITIAL_VT wasn't available, SDDM will use the next available one
-instead.
-
-You can override SDDM_INITIAL_VT if you want to have a different one if,
-for example, you were planning on using tty1 for something else.
-
-## LICENSE
-
-Source code of SDDM is licensed under GNU GPL version 2 or later (at your choosing).
-QML files are MIT licensed and images are CC BY 3.0.
-
-## TROUBLESHOOTING
-
-### NVIDIA Prime
-
-Add this at the bottom of the Xsetup script:
-
-```sh
-if [ -e /sbin/prime-offload ]; then
-    echo running NVIDIA Prime setup /sbin/prime-offload, you will need to manually run /sbin/prime-switch to shut down
-    /sbin/prime-offload
-fi
-```
-
-### No User Icon
-
-SDDM reads user icon from either ~/.face.icon or FacesDir/username.face.icon
-
-You need to make sure that SDDM user have permissions to read those files.
-In case you don't want to allow other users to access your $HOME you can use
-ACLs if your filesystem does support it.
-
-```sh
-setfacl -m u:sddm:x /home/username
-setfacl -m u:sddm:r /home/username/.face.icon
-```
-
-### Custom DPI
-
-In order to set custom DPI for high resolution screens you should configure
-Xorg yourself.  An easy way is to pass an additional argument to Xorg.
-
-Edit ``/etc/sddm.conf``, go to the ``X11`` section and change ``ServerArguments`` like this:
-
-```
-ServerArguments=-nolisten tcp -dpi 192
-```
-
-to set DPI to 192.
-
-As an alternative you can edit Xorg configuration ``xorg.conf``, please refer to the
-Xorg documentation.
+Ces orientations sont les orientations actuelles elle seront validé par la pratique avant d'être publiées.
