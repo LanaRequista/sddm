@@ -33,6 +33,8 @@ class QLocalSocket;
 
 namespace SDDM {
     class Authenticator;
+    class AuthBroker;
+    class AuthChannel;
     class DisplayServer;
     class Seat;
     class SocketServer;
@@ -65,6 +67,22 @@ namespace SDDM {
 
         Seat *seat() const;
 
+        // the winning channel authenticated the user: the cookie and
+        // the state are placed before the authenticated reply carries
+        // the bundle to the helper (the broker calls this
+        // synchronously, at the very moment of the reply)
+        void channelAuthenticated(AuthChannel *channel, const QString &user, QLocalSocket *socket);
+
+        // a channel asked for its conversation to start: the session
+        // bundle is built here (terminal, environment, display server
+        // command) and fixed at the channel's birth
+        // shared preparation of a PAM conversation (reuse-session
+        // lookup, terminal, session bundle) — common to the legacy
+        // upfront-password path and the channel path
+        bool prepareConversation(Auth *auth, const QString &user, const Session &session);
+
+        bool startChannelConversation(Auth *auth, const QString &user, const Session &session);
+
     public slots:
         bool start();
         void stop();
@@ -89,21 +107,16 @@ namespace SDDM {
         QString findGreeterTheme() const;
         bool findSessionEntry(const QStringList &dirPaths, const QString &name) const;
 
-        // start an authentication; in an interactive conversation the
-        // password prompts are held back until the greeter sends one,
-        // legacy logins and autologin submit what they were given upfront
+        // start the legacy authentication (plain login message with
+        // the password upfront, and autologin): the password prompts
+        // of this flow are answered from what it was given
         bool startAuth(const QString &user, const QString &password,
-                       const Session &session, bool interactive = false);
+                       const Session &session);
 
-        // fill the prompts of the pending request from the known user and
-        // the queued password, and complete the request when no password
-        // prompt is left unanswered
+        // fill the prompts of the pending legacy request from the
+        // known user and the upfront password, and complete the
+        // request when no password prompt is left unanswered
         void tryCompleteAuthRequest();
-
-        // start the interactive conversation queued while a cancellation
-        // was running (CancelLogin and LoginInteractive arrive in the same
-        // burst, and the cancel blocks the daemon on nested event loops)
-        void startPendingInteractive();
 
         void startSocketServerAndGreeter();
         bool handleAutologinFailure();
@@ -117,32 +130,14 @@ namespace SDDM {
 
         QString m_passPhrase;
         bool m_passwordQueued { false };
-        // the running conversation is interactive (started by the greeter
-        // without a password): its password prompts are never answered
-        // with anything but a password the greeter actually sent
-        bool m_interactive { false };
-        bool m_cancelling { false };
-        // the current login attempt succeeded: the helper is opening the
-        // user session, no cancellation or replacement conversation may
-        // touch it; reset when a new attempt starts or the helper exits
-        bool m_authSucceeded { false };
-        // last session accepted by startAuth(): a password typed after a
-        // failed conversation restarts one for the same user and session
-        Session m_lastSession;
 
-        // interactive conversation requested while a cancellation is
-        // running, started once the old helper is gone
-        bool m_pendingInteractive { false };
-        QString m_pendingUser;
-        QString m_pendingPassword;
-        Session m_pendingSession;
-        QPointer<QLocalSocket> m_pendingSocket;
         QString m_sessionName;
         QString m_reuseSessionId;
 
         Session m_autologinSession;
 
         Auth *m_auth { nullptr };
+        AuthBroker *m_broker { nullptr };
         DisplayServer *m_displayServer { nullptr };
         Seat *m_seat { nullptr };
         SocketServer *m_socketServer { nullptr };

@@ -48,6 +48,10 @@ namespace SDDM {
         Entry(InputMethod,         QString,     QStringLiteral("qtvirtualkeyboard"),                   _S("Input method module"));
         Entry(Namespaces,          QStringList, QStringList(),                                  _S("Comma-separated list of Linux namespaces for user session to enter"));
         Entry(GreeterEnvironment,  QStringList, QStringList(),                                  _S("Comma-separated list of environment variables to be set"));
+        Entry(CancelTimeout,       int,          500,                                            _S("Milliseconds to wait for the authentication helper to exit"
+                                                                                                   " cleanly after it is asked to stop before killing it.\n"
+                                                                                                   "The wait ends as soon as the helper exits; the value is only"
+                                                                                                   " a ceiling for helpers blocked in a PAM module."));
         //  Name   Entries (but it's a regular class again)
         Section(Theme,
             Entry(ThemeDir,            QString,     _S(DATA_INSTALL_DIR "/themes"),             _S("Theme directory path"));

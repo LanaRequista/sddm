@@ -101,6 +101,15 @@ namespace SDDM {
             m_user = args[pos + 1];
         }
 
+        if ((pos = args.indexOf(QStringLiteral("--pam-service"))) >= 0) {
+            if (pos >= args.length() - 1) {
+                qCritical() << "This application is not supposed to be executed manually";
+                exit(Auth::HELPER_OTHER_ERROR);
+                return;
+            }
+            m_backend->setPamService(args[pos + 1]);
+        }
+
         if ((pos = args.indexOf(QStringLiteral("--display-server"))) >= 0) {
             if (pos >= args.length() - 1) {
                 qCritical() << "This application is not supposed to be executed manually";

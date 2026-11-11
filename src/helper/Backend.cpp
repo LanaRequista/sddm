@@ -58,6 +58,14 @@ namespace SDDM {
         m_greeter = on;
     }
 
+    void Backend::setPamService(const QString &service) {
+        m_pamService = service;
+    }
+
+    QString Backend::pamService() const {
+        return m_pamService;
+    }
+
     bool Backend::openSession() {
         QProcessEnvironment env = m_app->session()->processEnvironment();
         struct passwd *pw;

@@ -21,6 +21,8 @@
 
 #include "Display.h"
 
+#include "AuthBroker.h"
+#include "AuthChannel.h"
 #include "Configuration.h"
 #include "DaemonApp.h"
 #include "DisplayManager.h"
@@ -109,6 +111,7 @@ namespace SDDM {
         : QObject(parent),
         m_displayServerType(serverType),
         m_auth(new Auth(this)),
+        m_broker(new AuthBroker(this)),
         m_seat(parent),
         m_socketServer(new SocketServer(this)),
         m_greeter(new Greeter(this))
@@ -162,6 +165,22 @@ namespace SDDM {
         connect(this, &Display::loginFailed, m_socketServer, &SocketServer::loginFailed);
         connect(this, &Display::loginSucceeded, m_socketServer, &SocketServer::loginSucceeded);
 
+        // the broker coordinates the authentication channels; its
+        // outcomes and display messages travel through the same
+        // greeter protocol as before
+        connect(m_broker, &AuthBroker::loginSucceeded, this, &Display::loginSucceeded);
+        connect(m_broker, &AuthBroker::loginFailed, this, &Display::loginFailed);
+        connect(m_broker, &AuthBroker::message, this, [this](QLocalSocket *socket, const QString &message) {
+            if (socket)
+                m_socketServer->informationMessage(socket, message);
+        });
+        connect(m_broker, &AuthBroker::sessionStarted, this, &Display::slotSessionStarted);
+        connect(m_broker, &AuthBroker::sessionFinished, this, [this](Auth::HelperExitStatus) {
+            // the winner's session is over (logout) or failed to
+            // start: the whole display cycle restarts a fresh greeter
+            stop();
+        });
+
         connect(m_greeter, &Greeter::failed, this, &Display::stop);
         connect(m_greeter, &Greeter::ttyFailed, this, [this] {
             ++s_ttyFailures;
@@ -213,6 +232,10 @@ namespace SDDM {
     }
 
     int Display::terminalId() const {
+        // a channel conversation or channel session is running: the
+        // session terminal is the display's current one
+        if (m_broker->state() == AuthBroker::Running || m_broker->hasRunningSession())
+            return m_sessionTerminalId;
         return m_auth->isActive() ? m_sessionTerminalId : m_terminalId;
     }
 
@@ -316,10 +339,8 @@ namespace SDDM {
 
         m_auth->stop();
 
-        // a queued replacement conversation is meaningless once the
-        // display stops
-        m_pendingInteractive = false;
-        m_pendingPassword = QString();
+        // the channels die quietly with the display
+        m_broker->stop();
 
         // stop socket server
         m_socketServer->stop();
@@ -348,6 +369,12 @@ namespace SDDM {
             return;
         }
 
+        // the legacy login has the last word: a running channel race
+        // is stopped first, nothing may compete with what the
+        // greeter explicitly submitted
+        if (m_broker->state() == AuthBroker::Running)
+            m_broker->stop();
+
         // authenticate; report the failure to the greeter instead of
         // leaving it waiting forever for an answer that will not come
         if (!startAuth(user, password, session))
@@ -356,162 +383,35 @@ namespace SDDM {
 
     void Display::loginInteractive(QLocalSocket *socket,
                                    const QString &user, const Session &session) {
-        m_socket = socket;
-
         // the sddm user has special privileges that skip password
         // checking so that we can load the greeter, block ever trying
         // to log in as the sddm user
         if (user == QLatin1String("sddm")) {
-            emit loginFailed(m_socket);
+            emit loginFailed(socket);
             return;
         }
 
-        // a cancellation is running: Auth::cancel() blocks on nested
-        // event loops, so a LoginInteractive following a CancelLogin in
-        // the same burst can be handled here re-entrantly. Queue the
-        // request and start it once the old helper is gone, instead of
-        // losing it to the startAuth() guard (or racing the still-dying
-        // helper on the shared QProcess)
-        if (m_cancelling) {
-            m_pendingInteractive = true;
-            m_pendingUser = user;
-            m_pendingSession = session;
-            m_pendingSocket = socket;
-            return;
-        }
-
-        // start the conversation without a password: the fingerprint
-        // stage runs right away, and the password prompt, when it
-        // comes, is held back until the greeter sends one
-        if (!startAuth(user, QString(), session, true))
-            emit loginFailed(m_socket);
+        // the broker spawns the applicable channels: fingerprint when
+        // the system has enrolled fingers, keyboard always. It never
+        // restarts anything for the user whose channels already run —
+        // the burst lesson
+        m_broker->userChosen(user, session, socket);
     }
 
     void Display::loginPassword(QLocalSocket *socket, const QString &password) {
-        if (!m_auth->isActive()) {
-            // the password targets the interactive conversation queued
-            // while a cancellation is running: keep it for that one
-            if (m_cancelling && m_pendingInteractive) {
-                m_socket = socket;
-                m_pendingPassword = password;
-                return;
-            }
-
-            // the session helper is running: a stray submission after a
-            // successful login is ignored, no new conversation may start
-            if (m_authSucceeded) {
-                qWarning() << "Received a password after a successful login, ignoring";
-                return;
-            }
-
-            // the conversation the greeter was talking to is already
-            // gone (failed PAM attempt). Typing a password is a
-            // deliberate human retry — same as clicking the avatar — so
-            // restart from a fresh interactive conversation for the
-            // same user and session, and queue the password for the
-            // password prompt that will come. The fingerprint stage
-            // runs first, as always; PAM arbitrates the factors.
-            const QString user = m_auth->user();
-            if (password.isEmpty() || user.isEmpty() || !m_lastSession.isValid()) {
-                qWarning() << "Received a password without a running conversation, ignoring";
-                // don't leave the greeter waiting: the submission was
-                // not consumed by anything
-                emit loginFailed(socket);
-                return;
-            }
-            m_socket = socket;
-            if (!startAuth(user, QString(), m_lastSession, true)) {
-                emit loginFailed(socket);
-                return;
-            }
-            m_passPhrase = password;
-            m_passwordQueued = true;
-            tryCompleteAuthRequest();
-            return;
-        }
-
-        m_socket = socket;
-
-        // queue the password for the password prompt that is already
-        // waiting for it, or for the one that will come later
-        m_passPhrase = password;
-        m_passwordQueued = true;
-        tryCompleteAuthRequest();
+        // the password goes to the keyboard channel only; the
+        // channel serves its held prompt, or the message is refused
+        // cleanly (nothing is ever buffered for later)
+        Q_UNUSED(socket);
+        m_broker->submitPassword(password);
     }
 
     void Display::cancelLogin(QLocalSocket *socket) {
-        // a first CancelLogin is already blocking inside Auth::cancel():
-        // a second one from the same burst (rapid user switching) refers
-        // to the very conversation being torn down; calling Auth::cancel()
-        // again here would target whatever helper sits on the shared
-        // QProcess next — including a replacement conversation that
-        // already started, or one that already succeeded
-        if (m_cancelling)
-            return;
-
-        if (m_authSucceeded)
-            return;
-
-        if (!m_auth->isActive())
-            return;
-
-        m_socket = socket;
-        m_cancelling = true;
-        m_auth->cancel();
-        // m_cancelling stays true until here, so the helper exit that
-        // slotHelperFinished() saw during the nested event loops was
-        // treated as a cancellation
-        m_cancelling = false;
-
-        // start the interactive conversation that was queued while the
-        // old one was being cancelled, if any
-        startPendingInteractive();
-    }
-
-    void Display::startPendingInteractive() {
-        if (!m_pendingInteractive)
-            return;
-
-        m_pendingInteractive = false;
-
-        QLocalSocket *socket = m_pendingSocket;
-        const QString user = m_pendingUser;
-        const QString password = m_pendingPassword;
-        const Session session = m_pendingSession;
-        m_pendingUser = QString();
-        m_pendingPassword = QString();
-        m_pendingSession = Session();
-
-        // the cancelled burst turned into a successful login after all:
-        // the session helper is running, a replacement conversation must
-        // not be started against it
-        if (m_authSucceeded) {
-            qWarning() << "Login succeeded while a conversation was queued, dropping the queued conversation";
-            return;
-        }
-
-        // the cancellation is expected to have ended the helper; do not
-        // race a helper that somehow survived, the greeter retries
-        if (m_auth->isActive()) {
-            qWarning() << "Cancelled authentication still active, not starting the queued conversation";
-            if (socket)
-                emit loginFailed(socket);
-            return;
-        }
-
-        if (!startAuth(user, QString(), session, true)) {
-            if (socket)
-                emit loginFailed(socket);
-            return;
-        }
-
-        // a password typed while the previous conversation was being
-        // cancelled: queue it for the conversation just started
-        if (!password.isEmpty()) {
-            m_passPhrase = password;
-            m_passwordQueued = true;
-            tryCompleteAuthRequest();
-        }
+        // user switching or escape: everything dies quietly, no
+        // failure is reported, the next user choice brings fresh
+        // channels
+        Q_UNUSED(socket);
+        m_broker->stop();
     }
 
     QString Display::findGreeterTheme() const {
@@ -555,14 +455,12 @@ namespace SDDM {
         return false;
     }
 
-    bool Display::startAuth(const QString &user, const QString &password,
-                            const Session &session, bool interactive) {
-
-        if (m_auth->isActive()) {
-            qWarning() << "Existing authentication ongoing, aborting";
-            return false;
-        }
-
+    // shared preparation of a PAM conversation: reuse-session
+    // lookup, terminal resolution and the session bundle (the
+    // environment carried to the helper at the authenticated reply).
+    // Everything is fixed here, at the birth of the conversation,
+    // and never touched afterwards
+    bool Display::prepareConversation(Auth *auth, const QString &user, const Session &session) {
         // sanity check
         if (!session.isValid()) {
             qCritical() << "Invalid session" << session.fileName();
@@ -599,7 +497,7 @@ namespace SDDM {
         }
 
         // save session desktop file name, we'll use it to set the
-        // last session later, in slotAuthenticationFinished()
+        // last session later, on victory
         m_sessionName = session.fileName();
 
         m_sessionTerminalId = m_terminalId;
@@ -635,32 +533,77 @@ namespace SDDM {
           if (m_displayServerType == X11DisplayServerType)
             env.insert(QStringLiteral("DISPLAY"), name());
           else
-            m_auth->setDisplayServerCommand(XorgUserDisplayServer::command(this));
+            auth->setDisplayServerCommand(XorgUserDisplayServer::command(this));
         } else {
-            m_auth->setDisplayServerCommand(QStringLiteral());
+            auth->setDisplayServerCommand(QStringLiteral());
 	}
-        // keep the session for a password retry after a failed
-        // conversation: it restarts one for the same user and session
-        m_lastSession = session;
 
-        // set the credentials only now that the conversation is certain
-        // to start, so no failure path can leave an armed empty password
-        // behind; legacy logins and autologin always have the password
-        // upfront (an empty one included), interactive conversations
-        // hold password prompts back until the greeter sends one
-        m_authSucceeded = false;
-        m_interactive = interactive;
-        m_passwordQueued = !interactive;
-        m_passPhrase = password;
-
-        m_auth->setUser(user);
+        auth->setUser(user);
         if (m_reuseSessionId.isNull()) {
-            m_auth->setSession(session.exec());
+            auth->setSession(session.exec());
         }
-        m_auth->insertEnvironment(env);
+        auth->insertEnvironment(env);
+
+        return true;
+    }
+
+    bool Display::startAuth(const QString &user, const QString &password,
+                           const Session &session) {
+        if (m_auth->isActive()) {
+            qWarning() << "Existing authentication ongoing, aborting";
+            return false;
+        }
+
+        if (!prepareConversation(m_auth, user, session))
+            return false;
+
+        // legacy flow (plain greeter login, autologin): the
+        // password travels upfront — an empty one included, exactly
+        // like upstream (I6)
+        m_passPhrase = password;
+        m_passwordQueued = true;
+
         m_auth->start();
 
         return true;
+    }
+
+    bool Display::startChannelConversation(Auth *auth, const QString &user, const Session &session) {
+        // the channel conversation: no password upfront, the prompts
+        // are answered by the channel as the greeter submits values
+        if (!prepareConversation(auth, user, session))
+            return false;
+
+        auth->start();
+
+        return true;
+    }
+
+    void Display::channelAuthenticated(AuthChannel *channel, const QString &user, QLocalSocket *socket) {
+        // the winning channel authenticated the user: place the
+        // cookie (or the reuse path) and the state before the
+        // authenticated reply carries the bundle to the helper
+        Q_UNUSED(socket);
+
+        if (!m_reuseSessionId.isNull()) {
+            OrgFreedesktopLogin1ManagerInterface manager(Logind::serviceName(), Logind::managerPath(), QDBusConnection::systemBus());
+            manager.UnlockSession(m_reuseSessionId);
+            manager.ActivateSession(m_reuseSessionId);
+        } else {
+            if (qobject_cast<XorgDisplayServer *>(m_displayServer))
+                channel->auth()->setCookie(qobject_cast<XorgDisplayServer *>(m_displayServer)->cookie());
+        }
+
+        // save last user and last session
+        if (mainConfig.Users.RememberLastUser.get())
+            stateConfig.Last.User.set(user);
+        else
+            stateConfig.Last.User.setDefault();
+        if (mainConfig.Users.RememberLastSession.get())
+            stateConfig.Last.Session.set(m_sessionName);
+        else
+            stateConfig.Last.Session.setDefault();
+        stateConfig.save();
     }
 
     void Display::slotAuthenticationFinished(const QString &user, bool success) {
@@ -671,10 +614,6 @@ namespace SDDM {
 
         if (success) {
             qDebug() << "Authentication for user " << user << " successful";
-
-            // the helper is opening the user session: from now on no
-            // cancellation or replacement conversation may touch it
-            m_authSucceeded = true;
 
             if (!m_reuseSessionId.isNull()) {
                 OrgFreedesktopLogin1ManagerInterface manager(Logind::serviceName(), Logind::managerPath(), QDBusConnection::systemBus());
@@ -706,9 +645,6 @@ namespace SDDM {
     }
 
     void Display::slotAuthInfo(const QString &message, Auth::Info info) {
-        if (m_cancelling)
-            return;
-
         qWarning() << "Authentication information:" << info << message;
 
         if (!m_socket)
@@ -718,9 +654,6 @@ namespace SDDM {
     }
 
     void Display::slotAuthError(const QString &message, Auth::Error error) {
-        if (m_cancelling)
-            return;
-
         qWarning() << "Authentication error:" << error << message;
 
         if (!m_socket)
@@ -732,35 +665,12 @@ namespace SDDM {
     }
 
     void Display::slotHelperFinished(Auth::HelperExitStatus status) {
-        // a cancelled conversation ends either with HELPER_CANCELLED (the
-        // helper read the opcode) or with a crash exit code (it was
-        // killed while blocked inside a PAM module); m_cancelling is
-        // reset by cancelLogin() itself, once Auth::cancel() has returned
-        bool cancelled = m_cancelling || status == Auth::HELPER_CANCELLED;
+        // legacy flow only (plain login, autologin); the channel
+        // conversations are handled by the broker
 
-        // the session helper is gone (session over, or a new login
-        // attempt resets the flag in startAuth()): the next conversation
-        // starts from a clean state
-        m_authSucceeded = false;
-
-        // wipe the queued password
+        // wipe the upfront password
         m_passPhrase = QString();
         m_passwordQueued = false;
-        m_interactive = false;
-
-        if (cancelled) {
-            // the conversation was aborted on purpose (user switch):
-            // keep the greeter running, no failure is reported; the
-            // replacement conversation, if any, is started from
-            // cancelLogin() once this helper is gone
-            return;
-        }
-
-        // a queued replacement conversation belongs to a cancellation; a
-        // conversation that failed on its own is restarted by the greeter
-        // on user action, drop any stale request
-        m_pendingInteractive = false;
-        m_pendingPassword = QString();
 
         // Don't restart greeter and display server unless sddm-helper exited
         // with an internal error or the user session finished successfully,
@@ -780,30 +690,24 @@ namespace SDDM {
         if (request->prompts().isEmpty())
             return;
 
-        // hold password prompts back until the greeter has sent a password
-        // (interactive conversations only: legacy logins queue it upfront)
-        bool waitingForPassword = false;
+        // legacy flow: every prompt is answered from what the login
+        // message carried upfront — the password included, empty or
+        // not, exactly like upstream (I6)
         for (AuthPrompt *prompt : request->prompts()) {
             switch (prompt->type()) {
                 case AuthPrompt::LOGIN_USER:
                     prompt->setResponse(m_auth->user().toLocal8Bit());
                     break;
                 case AuthPrompt::LOGIN_PASSWORD:
-                    // an interactive conversation never answers a password
-                    // prompt without a password actually sent by the
-                    // greeter, so an empty queued phrase cannot leak to PAM
-                    if (m_passwordQueued && !(m_interactive && m_passPhrase.isEmpty()))
+                    if (m_passwordQueued)
                         prompt->setResponse(m_passPhrase.toLocal8Bit());
-                    else
-                        waitingForPassword = true;
                     break;
                 default:
                     break;
             }
         }
 
-        if (!waitingForPassword)
-            request->done();
+        request->done();
     }
 
     void Display::slotSessionStarted(bool success) {

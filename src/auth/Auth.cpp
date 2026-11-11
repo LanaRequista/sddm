@@ -22,6 +22,7 @@
 #include "Constants.h"
 #include "AuthMessages.h"
 #include "SafeDataStream.h"
+#include "Configuration.h"
 
 #include <QtCore/QProcess>
 #include <QtCore/QUuid>
@@ -69,6 +70,7 @@ namespace SDDM {
         bool autologin { false };
         bool greeter { false };
         QProcessEnvironment environment { };
+        QString pamService { };
         bool authenticated { false };
         qint64 id { 0 };
         static qint64 lastId;
@@ -359,6 +361,14 @@ namespace SDDM {
         }
     }
 
+    QString Auth::pamService() const {
+        return d->pamService;
+    }
+
+    void Auth::setPamService(const QString &service) {
+        d->pamService = service;
+    }
+
     void Auth::setVerbose(bool on) {
         if (on != verbose()) {
             if (on)
@@ -378,6 +388,8 @@ namespace SDDM {
             args << QStringLiteral("--start") << d->sessionPath;
         if (!d->user.isEmpty())
             args << QStringLiteral("--user") << d->user;
+        if (!d->pamService.isEmpty())
+            args << QStringLiteral("--pam-service") << d->pamService;
         if (d->autologin)
             args << QStringLiteral("--autologin");
         if (!d->displayServerCmd.isEmpty())
@@ -422,7 +434,7 @@ namespace SDDM {
             str.send();
         }
 
-        if (d->child->waitForFinished(1000)) {
+        if (d->child->waitForFinished(qBound(0, mainConfig.CancelTimeout.get(), 60000))) {
             return;
         }
 

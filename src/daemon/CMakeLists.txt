@@ -22,6 +22,10 @@ set(DAEMON_SOURCES
     ${CMAKE_SOURCE_DIR}/src/auth/AuthRequest.cpp
 
     DaemonApp.cpp
+    AuthBroker.cpp
+    AuthBroker.h
+    AuthChannel.cpp
+    AuthChannel.h
     Display.cpp
     DisplayManager.cpp
     DisplayServer.cpp

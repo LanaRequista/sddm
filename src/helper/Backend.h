@@ -38,6 +38,10 @@ namespace SDDM {
         void setAutologin(bool on = true);
         void setDisplayServer(bool on = true);
         void setGreeter(bool on = true);
+        // the PAM service (rule) to authenticate against; empty
+        // means the backend picks its default ("sddm")
+        void setPamService(const QString &service);
+        QString pamService() const;
 
     public slots:
         virtual bool start(const QString &user = QString()) = 0;
@@ -53,6 +57,7 @@ namespace SDDM {
         bool m_autologin { false };
         bool m_displayServer = false;
         bool m_greeter { false };
+        QString m_pamService;
     };
 }
 

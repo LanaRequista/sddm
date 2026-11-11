@@ -247,6 +247,10 @@ namespace SDDM {
             service = QStringLiteral("sddm-greeter");
         else if (m_autologin)
             service = QStringLiteral("sddm-autologin");
+        else if (!m_pamService.isEmpty())
+            // the daemon named the rule: one authentication channel,
+            // one PAM service (fingerprint, keyboard, ...)
+            service = m_pamService;
         result = m_pam->start(service, user);
 
         if (!result)

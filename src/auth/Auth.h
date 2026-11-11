@@ -63,6 +63,11 @@ namespace SDDM {
         explicit Auth(QObject *parent);
         ~Auth();
 
+        // the PAM service (rule) the helper authenticates against;
+        // empty means the default "sddm" service
+        QString pamService() const;
+        void setPamService(const QString &service);
+
         enum Info {
             INFO_NONE = 0,
             INFO_UNKNOWN,
