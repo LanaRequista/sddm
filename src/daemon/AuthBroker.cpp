@@ -21,9 +21,11 @@
 
 #include "AuthBroker.h"
 #include "AuthChannel.h"
+#include "Configuration.h"
 #include "Display.h"
 
 #include <QDebug>
+#include <QTimer>
 #include <QLocalSocket>
 #include <QDBusConnection>
 #include <QDBusInterface>
@@ -183,13 +185,46 @@ namespace SDDM {
             m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
     }
 
+    QString AuthBroker::sensorPolicy() const {
+        const QString raw = mainConfig.Fingerprint.SensorPolicy.get();
+        if (raw == QLatin1String("Always") || raw == QLatin1String("Faillock"))
+            return raw;
+        if (raw != QLatin1String("ThreeAttempts"))
+            qWarning() << "AuthBroker: unknown Fingerprint.SensorPolicy" << raw << ", falling back to ThreeAttempts";
+        return QStringLiteral("ThreeAttempts");
+    }
+
+    int AuthBroker::sensorRetryWindows() const {
+        return qBound(1, mainConfig.Fingerprint.SensorRetryWindows.get(), 10);
+    }
+
+    void AuthBroker::scheduleFingerprintRebirth() {
+        // deterministic death: refused birth, locked account, missing
+        // device — an immediate rebirth would spin in a hot loop;
+        // the channel comes back when the cause has had time to clear
+        const QString user = m_user;
+        QTimer::singleShot(30 * 1000, this, [this, user] {
+            if (m_dead || m_state != Running || m_fingerprintChannel || m_user != user)
+                return;
+            if (fingerprintAvailable(m_user))
+                m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
+        });
+    }
+
     AuthChannel *AuthBroker::spawnChannel(AuthChannel::Type type) {
         // one method, one rule: the keyboard rule carries no
         // pam_fprintd (the password prompt is immediate), the
-        // fingerprint rule is the current sddm stack
-        QString service = (type == AuthChannel::Fingerprint)
-                              ? QStringLiteral("sddm-fingerprint")
-                              : QStringLiteral("sddm-password");
+        // fingerprint rule is a standalone fprintd stack; the
+        // Faillock policy swaps it for the strict variant whose
+        // failures feed the system lockout through a counter of
+        // its own (dir=/run/faillock-sensor)
+        QString service;
+        if (type == AuthChannel::Keyboard)
+            service = QStringLiteral("sddm-password");
+        else if (sensorPolicy() == QLatin1String("Faillock"))
+            service = QStringLiteral("sddm-fingerprint-strict");
+        else
+            service = QStringLiteral("sddm-fingerprint");
 
         AuthChannel *channel = new AuthChannel(type, service, m_display);
 
@@ -246,8 +281,28 @@ namespace SDDM {
             m_keyboardChannel = spawnChannel(AuthChannel::Keyboard);
         } else if (channel->type() == AuthChannel::Fingerprint) {
             m_fingerprintChannel = nullptr;
+            const bool honest = channel->engaged();
             channel->deleteLater();
-            // reborn only if the method still has something to offer
+
+            if (!honest) {
+                // deterministic death: no sensor activity was ever
+                // seen — recreate slowly, whatever the policy
+                qWarning() << "AuthBroker: fingerprint channel died without any sensor activity, rebirth in 30 s";
+                scheduleFingerprintRebirth();
+                return;
+            }
+
+            // an honest death: real fingers met the reader and the
+            // conversation failed. The policy is the only judge of
+            // what happens next
+            ++m_fingerDeaths;
+            if (sensorPolicy() == QLatin1String("ThreeAttempts")
+                    && m_fingerDeaths >= sensorRetryWindows()) {
+                qWarning() << "AuthBroker: sensor budget exhausted"
+                           << "(" << m_fingerDeaths << "failed windows), only the keyboard channel remains";
+                return;
+            }
+
             if (fingerprintAvailable(m_user))
                 m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
         }

@@ -76,6 +76,10 @@ namespace SDDM {
         return m_state;
     }
 
+    bool AuthChannel::engaged() const {
+        return m_engaged;
+    }
+
     Auth *AuthChannel::auth() const {
         return m_auth;
     }
@@ -122,14 +126,28 @@ namespace SDDM {
         }
 
         // serve the held password prompt; every other prompt keeps
-        // the policy of handleRequest()
+        // the policy of handleRequest(). Unlike handleRequest(), the
+        // answer IS completed here: done() writes the response to
+        // the helper — handleRequest() only knows how to HOLD a
+        // password prompt, calling it here would hold the answer
+        // forever and the submission would never reach PAM (the
+        // 22:17 live-test bug: Enter received, strictly nothing sent)
+        bool served = false;
         AuthRequest *request = m_auth->request();
         for (AuthPrompt *prompt : request->prompts()) {
-            if (prompt->type() == AuthPrompt::LOGIN_PASSWORD)
+            if (prompt->type() == AuthPrompt::LOGIN_PASSWORD) {
                 prompt->setResponse(password.toLocal8Bit());
+                served = true;
+            }
         }
 
-        handleRequest();
+        if (!served) {
+            qWarning() << "AuthChannel:" << m_pamService
+                       << "received a password while no password prompt is held, ignoring";
+            return;
+        }
+
+        request->done();
     }
 
     void AuthChannel::silence() {

@@ -63,6 +63,13 @@ namespace SDDM {
         Type type() const;
         State state() const;
 
+        // true when this channel ever saw activity of its method (a
+        // PAM request, a message, an error) — a channel dying without
+        // ever engaging died of a deterministic cause (refused birth,
+        // locked account, missing device): the broker pauses instead
+        // of recreating it in a hot loop
+        bool engaged() const;
+
         // the private Auth instance of this conversation, for the
         // display to attach the X11 cookie on victory
         Auth *auth() const;
@@ -126,6 +133,9 @@ namespace SDDM {
 
         // the broker declared this channel the winner
         bool m_winner;
+
+        // any activity ever received from this channel's helper
+        bool m_engaged = false;
 
         // a channel being shut down stops reporting: its last words
         // would be the symptoms of an execution, not of a failure

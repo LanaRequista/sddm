@@ -53,6 +53,25 @@ namespace SDDM {
                                                                                                    "The wait ends as soon as the helper exits; the value is only"
                                                                                                    " a ceiling for helpers blocked in a PAM module."));
         //  Name   Entries (but it's a regular class again)
+        Section(Fingerprint,
+            Entry(SensorPolicy,     QString,     _S("ThreeAttempts"),                            _S("Availability policy of the fingerprint sensor channel.\n"
+                                                                                                   "Always: the sensor channel is recreated after every failed\n"
+                                                                                                   "conversation, without limit.\n"
+                                                                                                   "ThreeAttempts: after SensorRetryWindows failed conversations\n"
+                                                                                                   "only the keyboard channel remains, until the next race (a\n"
+                                                                                                   "different user or a fresh greeter). No fingerprint failure\n"
+                                                                                                   "is ever counted by the system lockout.\n"
+                                                                                                   "Faillock: fingerprint failures are counted by the system\n"
+                                                                                                   "lockout with the same policy as the keyboard channel\n"
+                                                                                                   "(sddm-fingerprint-strict service); a locked account also\n"
+                                                                                                   "closes the sensor channel.\n"
+                                                                                                   "Any other value falls back to ThreeAttempts."));
+            Entry(SensorRetryWindows, int,       3,                                              _S("Under the ThreeAttempts policy: how many failed sensor\n"
+                                                                                                   "conversations (verify windows) exhaust the sensor channel.\n"
+                                                                                                   "Each window lets pam_fprintd take its own internal retries.\n"
+                                                                                                   "Range 1..10."));
+        );
+
         Section(Theme,
             Entry(ThemeDir,            QString,     _S(DATA_INSTALL_DIR "/themes"),             _S("Theme directory path"));
             Entry(Current,             QString,     _S(""),                                     _S("Current theme name"));

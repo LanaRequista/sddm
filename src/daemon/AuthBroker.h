@@ -102,6 +102,14 @@ namespace SDDM {
         void channelDied(AuthChannel *channel);
         void declareWinner(AuthChannel *channel, const QString &user);
         bool fingerprintAvailable(const QString &user) const;
+        // the sensor availability policy of [Fingerprint] SensorPolicy,
+        // validated (anything unknown falls back to ThreeAttempts)
+        QString sensorPolicy() const;
+        int sensorRetryWindows() const;
+        // a fingerprint channel died without any sensor activity
+        // (refused birth, locked account, missing device): recreate
+        // it slowly, or the broker spins in a hot rebirth loop
+        void scheduleFingerprintRebirth();
 
         Display *m_display;
         QPointer<AuthChannel> m_fingerprintChannel;
@@ -117,6 +125,9 @@ namespace SDDM {
         // teardown in progress (display stopping): dead channels are
         // not recreated during the dismantling
         bool m_dead = false;
+        // failed sensor conversations (verify windows) of the current
+        // race — the ThreeAttempts budget
+        int m_fingerDeaths = 0;
     };
 }
 
