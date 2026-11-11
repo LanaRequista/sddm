@@ -171,15 +171,17 @@ Rectangle {
                 state: (listView.currentIndex === index) ? "active" : ""
 
                 onLogin: {
-                    if (conversationUser === model.name) {
-                        // never submit an empty password to the running
-                        // conversation: the held prompt would get an empty
-                        // answer and an immediate PAM failure
-                        if (password !== "")
-                            sddm.loginPassword(password);
-                    } else {
-                        sddm.login(model.name, password, sessionIndex);
-                    }
+                    // a typed password is a human action: ALWAYS the
+                    // keyboard channel of the running race, never the
+                    // legacy upfront login() — the broker owns the
+                    // "which conversation " truth, whatever this view
+                    // locally believes (multi-screen views have no
+                    // conversation of their own, their conversationUser
+                    // stays empty). Sending legacy login() from here
+                    // would kill the race and revive the v1
+                    // finger-first single conversation.
+                    if (password !== "")
+                        sddm.loginPassword(password);
                 }
 
                 MouseArea {

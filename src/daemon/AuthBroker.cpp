@@ -27,6 +27,7 @@
 #include <QLocalSocket>
 #include <QDBusConnection>
 #include <QDBusInterface>
+#include <QDBusObjectPath>
 #include <QDBusReply>
 #include <QDBusMetaType>
 
@@ -282,17 +283,46 @@ namespace SDDM {
     }
 
     bool AuthBroker::fingerprintAvailable(const QString &user) const {
-        // a birth decision only: does the system have enrolled
-        // fingers for this user? What the greeter displays always
-        // comes from the conversation itself, never from here
-        QDBusInterface device(QStringLiteral("net.reactivated.fprint"),
-                              QStringLiteral("/net/reactivated/fprint/Device"),
-                              QStringLiteral("net.reactivated.Fprint.Device"),
-                              QDBusConnection::systemBus());
-        if (!device.isValid())
+        // a birth decision only: does the system have enrolled fingers
+        // for this user? What the greeter displays always comes from
+        // the conversation itself, never from here
+        //
+        // names read from the running fprintd on this machine
+        // (11 nov., busctl introspection): bus name and paths carry a
+        // capital F, the device is resolved through the manager, never
+        // hardcoded — this machine answers /net/reactivated/Fprint/Device/0
+        const QDBusConnection bus = QDBusConnection::systemBus();
+        QDBusInterface manager(QStringLiteral("net.reactivated.Fprint"),
+                               QStringLiteral("/net/reactivated/Fprint/Manager"),
+                               QStringLiteral("net.reactivated.Fprint.Manager"),
+                               bus);
+        if (!manager.isValid()) {
+            qWarning() << "AuthBroker: fprintd manager not reachable, no fingerprint channel";
             return false;
+        }
 
-        QDBusReply<QStringList> reply = device.call(QStringLiteral("ListEnrolledFingers"), user);
-        return reply.isValid() && !reply.value().isEmpty();
+        const QDBusReply<QDBusObjectPath> device = manager.call(QStringLiteral("GetDefaultDevice"));
+        if (!device.isValid()) {
+            qWarning() << "AuthBroker: no fingerprint device:" << device.error().message();
+            return false;
+        }
+
+        QDBusInterface sensor(QStringLiteral("net.reactivated.Fprint"), device.value().path(),
+                               QStringLiteral("net.reactivated.Fprint.Device"),
+                               bus);
+        if (!sensor.isValid()) {
+            qWarning() << "AuthBroker: fingerprint device not reachable, no fingerprint channel";
+            return false;
+        }
+
+        const QDBusReply<QStringList> fingers = sensor.call(QStringLiteral("ListEnrolledFingers"), user);
+        if (!fingers.isValid()) {
+            // an error here simply means "nothing to verify for this
+            // user" (no prints enrolled): no channel is born for him
+            qWarning() << "AuthBroker: ListEnrolledFingers:" << fingers.error().message();
+            return false;
+        }
+
+        return !fingers.value().isEmpty();
     }
 }
