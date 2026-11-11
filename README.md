@@ -26,11 +26,13 @@ J'ai pris les deux orientation alternatives et même complémentaires à terme s
 2) Lancer deux PAM concurrents :
    - l'un écoutant le capteur
    - l'autre écoutant le clavier
-le premier des deux PAM ouverts qui réussit ouvre la cession plasma.
+
+le premier des deux PAM ouverts qui réussit ouvre la cession plasma, l'autre devra être fermée proprement ou se terminer "dans le vide" 
+=> c'est un point ouvert pour l'instant afin de ne pas créer un autre problème de sécurité ou de pollution du système.
 
 3) optionnel à valider par la pratique si c'est intéressant:
 intégration proprement dans SDDM de façon que n'importe quel thème construit dessus pourra réutiliser de façon transparente les améliorations :
    - usage d'un écran d'accueil qui change selon le type d'authentification utilisé
    - utilisation d'un logo empreinte ou clavier pour signifier à l'utilisateur ce qui est actuellement écouté
 
-Ces orientations sont les orientations actuelles elle seront validé par la pratique avant d'être publiées.
+Ces orientations sont les orientations actuelles, elles seront validées par la pratique avant d'être publiées.
