@@ -154,7 +154,10 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         color: "transparent"
-        //visible: primaryScreen
+        // one entrance: the interactive greeter lives on the primary
+        // screen only, the other monitors show the background (the
+        // 12 nov. decision: one expected action, one door)
+        visible: primaryScreen
 
         Component {
             id: userDelegate

@@ -40,6 +40,19 @@ namespace SDDM {
         m_auth->setPamService(pamService);
 
         connect(m_auth, &Auth::requestChanged, this, [this] {
+            // a request or an info message is a LIVE conversation: the
+            // method engaged (the fprintd finger hint is an info, a
+            // password prompt is a request) — the broker may judge a
+            // later death honest, counting the window in the sensor
+            // budget and reborn at once. An error alone does NOT
+            // engage: a locked account answers with a bare faillock
+            // error before anything ran, and honouring it would
+            // relaunch a hot rebirth loop instead of the
+            // deterministic 30 s pause. (The assignments were lost on
+            // 11 nov. by the edit tool: every sensor death behaved
+            // as deterministic — cold sensor, exhausted-budget
+            // policies never triggering.)
+            m_engaged = true;
             if (!m_silenced)
                 Q_EMIT requestChanged(this);
             handleRequest();
@@ -53,6 +66,7 @@ namespace SDDM {
             }
         });
         connect(m_auth, &Auth::info, this, [this](const QString &message, Auth::Info type) {
+            m_engaged = true;
             if (!m_silenced)
                 Q_EMIT info(this, message, type);
         });

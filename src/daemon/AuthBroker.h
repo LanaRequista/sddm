@@ -8,8 +8,16 @@
  * single go-ahead. Channels never coordinate anything and never talk
  * to each other; the greeter never sees them.
  *
+ * The keyboard channel is LAZY (the airlock): it is born on the
+ * first password submission, not at the opening of the race — a race
+ * won by the sensor closes no open PAM door and generates no ghost
+ * failure in the keyboard's faillock counter. The submitted password
+ * waits in the broker until the newborn channel holds its prompt.
+ *
  * Two stable properties, the project invariants:
- *  - a channel is always open: any dead one is recreated at once;
+ *  - the keyboard can always be BORN: a dead keyboard channel is not
+ *    recreated on its own — only a submission (a human gesture)
+ *    revives it; the screen never locks anyone out;
  *  - no security policy lives here: counters, delays and locks are
  *    the system's (PAM), ours are only shown verbatim.
  *
@@ -74,7 +82,9 @@ namespace SDDM {
         void stop();
 
         // a password was submitted: it goes to the keyboard channel
-        // only — the fingerprint conversation is the sensor's
+        // only — the fingerprint conversation is the sensor's. With
+        // no keyboard channel alive (the airlock), the submission
+        // spawns one and the password waits for its held prompt
         void submitPassword(const QString &password);
 
     signals:
@@ -94,6 +104,7 @@ namespace SDDM {
         void onAuthenticated(AuthChannel *channel, const QString &user);
         void onInfo(AuthChannel *channel, const QString &text, Auth::Info type);
         void onError(AuthChannel *channel, const QString &text, Auth::Error type);
+        void onRequestChanged(AuthChannel *channel);
         void onSessionFinished(AuthChannel *channel, Auth::HelperExitStatus status);
 
     private:
@@ -128,6 +139,10 @@ namespace SDDM {
         // failed sensor conversations (verify windows) of the current
         // race — the ThreeAttempts budget
         int m_fingerDeaths = 0;
+        // the password of an airlock submission, waiting for the
+        // keyboard channel to hold its prompt; empty outside the
+        // birth-to-submission window
+        QString m_pendingPassword;
     };
 }
 

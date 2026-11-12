@@ -399,9 +399,10 @@ namespace SDDM {
     }
 
     void Display::loginPassword(QLocalSocket *socket, const QString &password) {
-        // the password goes to the keyboard channel only; the
-        // channel serves its held prompt, or the message is refused
-        // cleanly (nothing is ever buffered for later)
+        // the password goes to the keyboard channel only; the channel
+        // serves its held prompt, or (the airlock) the submission
+        // births the channel and the broker holds the value until
+        // the newborn conversation holds its prompt
         Q_UNUSED(socket);
         m_broker->submitPassword(password);
     }

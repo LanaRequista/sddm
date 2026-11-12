@@ -93,6 +93,7 @@ namespace SDDM {
         // reborn until the next user choice
         m_dead = true;
         m_winner = nullptr;
+        m_pendingPassword.clear();
         if (m_fingerprintChannel) {
             m_fingerprintChannel->requestShutdown();
             m_fingerprintChannel->deleteLater();
@@ -116,9 +117,48 @@ namespace SDDM {
         // fingerprint conversation is the sensor's
         if (m_keyboardChannel) {
             m_keyboardChannel->submit(password);
-        } else {
-            qWarning() << "AuthBroker: password submitted without a keyboard channel, ignoring";
+            return;
         }
+
+        // the airlock (lazy keyboard channel): no door is open, the
+        // submission opens one. The password waits for the newborn
+        // channel to hold its prompt (onRequestChanged delivers it);
+        // if the birth fails nothing respawns by itself — the next
+        // Enter retries
+        if (password.isEmpty()) {
+            qWarning() << "AuthBroker: empty password, not opening a keyboard channel";
+            return;
+        }
+
+        m_pendingPassword = password;
+        AuthChannel *channel = spawnChannel(AuthChannel::Keyboard);
+        if (!channel) {
+            // stillborn: a non-event (deterministic failure), the
+            // pending password dies with the channel
+            m_pendingPassword.clear();
+            qWarning() << "AuthBroker: keyboard channel stillborn, the next submission retries";
+            return;
+        }
+        m_keyboardChannel = channel;
+    }
+
+    void AuthBroker::onRequestChanged(AuthChannel *channel) {
+        if (channel != m_keyboardChannel || m_pendingPassword.isEmpty())
+            return;
+
+        // the channel just received a PAM request; handleRequest(),
+        // which holds the password prompt, runs when the signal
+        // returns — deliver from the next event loop turn so the
+        // prompt is actually held when submit() serves it
+        QTimer::singleShot(0, this, [this, channel] {
+            if (channel != m_keyboardChannel || m_pendingPassword.isEmpty())
+                return;
+            if (channel->state() != AuthChannel::Conversing)
+                return;
+            const QString password = m_pendingPassword;
+            m_pendingPassword.clear();
+            channel->submit(password);
+        });
     }
 
     void AuthBroker::onStateChanged(AuthChannel *channel) {
@@ -173,10 +213,12 @@ namespace SDDM {
     }
 
     void AuthBroker::spawnChannels() {
-        // the keyboard channel always exists: SDDM always offers a
-        // way to authenticate (the invariant of the open channel)
-        if (!m_keyboardChannel)
-            m_keyboardChannel = spawnChannel(AuthChannel::Keyboard);
+        // the airlock: only the sensor opens a door at the start of
+        // the race. The keyboard channel is born on the first
+        // password submission (submitPassword) — an always-open
+        // keyboard door would have to be slammed on every sensor
+        // victory, and PAM counts slammed doors as failures
+        // (the ghost-failure experiment of 12 nov.)
 
         // the fingerprint channel exists when the system has
         // something to verify: a birth decision, never a display
@@ -232,6 +274,7 @@ namespace SDDM {
         connect(channel, &AuthChannel::authenticated, this, &AuthBroker::onAuthenticated);
         connect(channel, &AuthChannel::info, this, &AuthBroker::onInfo);
         connect(channel, &AuthChannel::error, this, &AuthBroker::onError);
+        connect(channel, &AuthChannel::requestChanged, this, &AuthBroker::onRequestChanged);
         connect(channel, &AuthChannel::sessionStarted, this, [this](AuthChannel *, bool success) {
             Q_EMIT sessionStarted(success);
         });
@@ -276,9 +319,15 @@ namespace SDDM {
         // and locks of the system are shown verbatim, they are not
         // implemented twice here.
         if (channel->type() == AuthChannel::Keyboard) {
+            // the airlock closes again: a dead keyboard channel is
+            // NOT recreated here — the death of a conversation is an
+            // honest system event (failed password, shown lock) and
+            // rebirth is a human gesture, the next Enter (the B2
+            // rule). The pending password, if the channel died
+            // before holding its prompt, dies with it
+            m_pendingPassword.clear();
             m_keyboardChannel = nullptr;
             channel->deleteLater();
-            m_keyboardChannel = spawnChannel(AuthChannel::Keyboard);
         } else if (channel->type() == AuthChannel::Fingerprint) {
             m_fingerprintChannel = nullptr;
             const bool honest = channel->engaged();
@@ -312,6 +361,10 @@ namespace SDDM {
         m_state = Resolved;
         m_winner = channel;
         channel->markWinner();
+        // the race is over: a submitted password waiting for a
+        // newborn keyboard channel dies here — the new race gets a
+        // fresh submission
+        m_pendingPassword.clear();
 
         // the cookie must sit in the winner's bundle before the
         // authenticated reply carries it to the helper: this slot
