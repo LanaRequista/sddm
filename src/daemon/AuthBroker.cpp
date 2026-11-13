@@ -195,11 +195,20 @@ namespace SDDM {
     }
 
     void AuthBroker::onError(AuthChannel *channel, const QString &text, Auth::Error type) {
-        Q_UNUSED(channel)
-
+        // the message carries the PAM truth verbatim, whatever channel
+        // spoke; the greeter displays it as it arrived
         Q_EMIT message(m_socket, text);
 
-        if (type == Auth::ERROR_AUTHENTICATION && m_state == Running && m_socket)
+        // loginFailed is the announcement of a REFUSED SUBMISSION: it
+        // belongs to the keyboard channel only, the one carrying the
+        // user's password submission. An error of the sensor channel
+        // (failed window, exhausted budget) is not a refused
+        // submission -- the user may be typing right now, and the
+        // theme's failure treatment (field wipe, failure label) must
+        // not erase it (the 13 nov. live report: field emptied while
+        // typing, at the death of the sensor channel)
+        if (type == Auth::ERROR_AUTHENTICATION && m_state == Running && m_socket
+                && channel->type() == AuthChannel::Keyboard)
             Q_EMIT loginFailed(m_socket);
     }
 
