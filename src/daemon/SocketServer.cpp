@@ -238,4 +238,8 @@ namespace SDDM {
     void SocketServer::informationMessage(QLocalSocket *socket, const QString &message) {
         SocketWriter(socket) << quint32(DaemonMessages::InformationMessage) << message;
     }
+
+    void SocketServer::authStage(QLocalSocket *socket, const QString &stage) {
+        SocketWriter(socket) << quint32(DaemonMessages::AuthStage) << stage;
+    }
 }

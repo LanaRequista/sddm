@@ -82,8 +82,12 @@ namespace SDDM {
         m_socket = socket;
         m_state = Running;
         m_dead = false;
+        // a new race: the sensor budget starts clean (the policy is
+        // X windows per race, not per daemon)
+        m_fingerDeaths = 0;
 
         spawnChannels();
+        publishStage();
     }
 
     void AuthBroker::stop() {
@@ -105,6 +109,7 @@ namespace SDDM {
             m_keyboardChannel = nullptr;
         }
         m_state = Idle;
+        publishStage();
     }
 
     void AuthBroker::submitPassword(const QString &password) {
@@ -236,6 +241,16 @@ namespace SDDM {
             m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
     }
 
+    void AuthBroker::publishStage() {
+        // the only computation of the factor stage, always from the
+        // live state -- UI truth is never a memory of a transition
+        QString stage;
+        if (m_state == Running)
+            stage = m_fingerprintChannel
+                    ? QStringLiteral("fingerprint") : QStringLiteral("password");
+        Q_EMIT authStage(m_socket, stage);
+    }
+
     QString AuthBroker::sensorPolicy() const {
         const QString raw = mainConfig.Fingerprint.SensorPolicy.get();
         if (raw == QLatin1String("Always") || raw == QLatin1String("Faillock"))
@@ -257,8 +272,10 @@ namespace SDDM {
         QTimer::singleShot(30 * 1000, this, [this, user] {
             if (m_dead || m_state != Running || m_fingerprintChannel || m_user != user)
                 return;
-            if (fingerprintAvailable(m_user))
+            if (fingerprintAvailable(m_user)) {
                 m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
+                publishStage();
+            }
         });
     }
 
@@ -347,6 +364,7 @@ namespace SDDM {
                 // seen — recreate slowly, whatever the policy
                 qWarning() << "AuthBroker: fingerprint channel died without any sensor activity, rebirth in 30 s";
                 scheduleFingerprintRebirth();
+                publishStage();
                 return;
             }
 
@@ -358,11 +376,13 @@ namespace SDDM {
                     && m_fingerDeaths >= sensorRetryWindows()) {
                 qWarning() << "AuthBroker: sensor budget exhausted"
                            << "(" << m_fingerDeaths << "failed windows), only the keyboard channel remains";
+                publishStage();
                 return;
             }
 
             if (fingerprintAvailable(m_user))
                 m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
+            publishStage();
         }
     }
 
@@ -374,6 +394,7 @@ namespace SDDM {
         // newborn keyboard channel dies here — the new race gets a
         // fresh submission
         m_pendingPassword.clear();
+        publishStage();
 
         // the cookie must sit in the winner's bundle before the
         // authenticated reply carries it to the helper: this slot

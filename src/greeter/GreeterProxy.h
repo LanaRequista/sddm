@@ -33,6 +33,11 @@ namespace SDDM {
         Q_DISABLE_COPY(GreeterProxy)
 
         Q_PROPERTY(QString  hostName        READ hostName       NOTIFY hostNameChanged)
+        // the factor stage of the running race, the motor's truth:
+        // "fingerprint" (sensor channel available), "password"
+        // (keyboard only), "" (no race); themes display it, they
+        // never guess it from messages
+        Q_PROPERTY(QString  authStage       READ authStage      NOTIFY authStageChanged)
         Q_PROPERTY(bool     canPowerOff     READ canPowerOff    NOTIFY canPowerOffChanged)
         Q_PROPERTY(bool     canReboot       READ canReboot      NOTIFY canRebootChanged)
         Q_PROPERTY(bool     canSuspend      READ canSuspend     NOTIFY canSuspendChanged)
@@ -44,6 +49,7 @@ namespace SDDM {
         ~GreeterProxy();
 
         const QString &hostName() const;
+        const QString &authStage() const;
 
         bool canPowerOff() const;
         bool canReboot() const;
@@ -76,6 +82,7 @@ namespace SDDM {
     signals:
         void informationMessage(const QString &message);
         void hostNameChanged(const QString &hostName);
+        void authStageChanged(const QString &stage);
         void canPowerOffChanged(bool canPowerOff);
         void canRebootChanged(bool canReboot);
         void canSuspendChanged(bool canSuspend);

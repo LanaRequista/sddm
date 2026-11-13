@@ -46,6 +46,12 @@ namespace SDDM {
         LoginSucceeded,
         LoginFailed,
         InformationMessage,
+        // fingerprint login: the factor stage of the running race --
+        // "fingerprint" while the sensor channel is available for the
+        // selected user, "password" when only the keyboard remains,
+        // "" when no race runs. The motor owns this truth; themes
+        // display it, they never guess it from messages
+        AuthStage
     };
 
     enum Capability {

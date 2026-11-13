@@ -33,6 +33,7 @@ namespace SDDM {
         SessionModel *sessionModel { nullptr };
         QLocalSocket *socket { nullptr };
         QString hostName;
+        QString authStage;
         bool canPowerOff { false };
         bool canReboot { false };
         bool canSuspend { false };
@@ -58,6 +59,10 @@ namespace SDDM {
 
     const QString &GreeterProxy::hostName() const {
         return d->hostName;
+    }
+
+    const QString &GreeterProxy::authStage() const {
+        return d->authStage;
     }
 
     void GreeterProxy::setSessionModel(SessionModel *model) {
@@ -242,6 +247,15 @@ namespace SDDM {
 
                     qDebug() << "Information Message received from daemon: " << message;
                     emit informationMessage(message);
+                }
+                break;
+                case DaemonMessages::AuthStage: {
+                    QString stage;
+                    input >> stage;
+
+                    qDebug() << "Auth stage received from daemon: " << stage;
+                    d->authStage = stage;
+                    emit authStageChanged(stage);
                 }
                 break;
                 default: {

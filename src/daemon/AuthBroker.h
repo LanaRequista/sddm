@@ -93,6 +93,10 @@ namespace SDDM {
         void loginSucceeded(QLocalSocket *socket);
         void loginFailed(QLocalSocket *socket);
         void message(QLocalSocket *socket, const QString &message);
+        // the factor stage of the running race, the motor's truth:
+        // "fingerprint" (sensor channel available), "password"
+        // (keyboard only), "" (no race); published at every transition
+        void authStage(QLocalSocket *socket, const QString &stage);
 
         // the winner's session started (the greeter may go) or
         // finished (logout: the display cycle takes over)
@@ -113,6 +117,11 @@ namespace SDDM {
         void channelDied(AuthChannel *channel);
         void declareWinner(AuthChannel *channel, const QString &user);
         bool fingerprintAvailable(const QString &user) const;
+        // the single computation of the factor stage from the live
+        // state: called after any transition (race start, channel
+        // birth or death, victory) so the greeter always holds the
+        // truth, never a memory of a transition
+        void publishStage();
         // the sensor availability policy of [Fingerprint] SensorPolicy,
         // validated (anything unknown falls back to ThreeAttempts)
         QString sensorPolicy() const;
