@@ -26,6 +26,7 @@
 
 #include <QDebug>
 #include <QEventLoop>
+#include <QRegularExpression>
 #include <QTimer>
 #include <QLocalSocket>
 #include <QDBusConnection>
@@ -84,8 +85,10 @@ namespace SDDM {
         m_state = Running;
         m_dead = false;
         // a new race: the sensor budget starts clean (the policy is
-        // X windows per race, not per daemon)
+        // X windows per race, not per daemon), and each PAM sentence
+        // of the sensor is allowed one display again
         m_fingerDeaths = 0;
+        m_shownFingerMessages.clear();
 
         spawnChannels();
         publishStage();
@@ -193,8 +196,40 @@ namespace SDDM {
     }
 
     void AuthBroker::onInfo(AuthChannel *channel, const QString &text, Auth::Info type) {
-        Q_UNUSED(channel)
         Q_UNUSED(type)
+
+        // the ONLY text classification of the engine (the 16 nov.
+        // report: an idle verify TIMEOUT reached the theme as a
+        // swipe failure somme -- winces fired while nobody touched
+        // the sensor and quietly burned the shake budget). The
+        // refusal/timeout truth lives nowhere else but the PAM
+        // sentence: one place, loose patterns, and the fallback is
+        // benign -- an unknown language classifies nothing, so the
+        // wince stays silent and the window rebirth takes the slow
+        // deterministic road instead of a lie
+        if (channel->type() == AuthChannel::Fingerprint && m_state == Running) {
+            // normalized: the accented capital of "Échec" must not
+            // hide the unaccented patterns (the 15 nov. lesson,
+            // replayed engine-side once and for all)
+            const QString plain = QString(text).normalized(QString::NormalizationForm_D)
+                    .remove(QRegularExpression(QLatin1String("[\\x{0300}-\\x{036f}]")));
+            if (plain.contains(QRegularExpression(QLatin1String("reconnaissance|did not match|no.?match|failed to match"),
+                                                  QRegularExpression::CaseInsensitiveOption)))
+                channel->setRefused();
+            else if (plain.contains(QRegularExpression(QLatin1String("expir|time[- ]?out|delai"),
+                                                       QRegularExpression::CaseInsensitiveOption)))
+                channel->setTimedOut();
+
+            // the rebirth cycle must be INVISIBLE (the 16 nov. rule):
+            // one display per sentence per race -- the repeated hint
+            // of every reborn window never reaches the greeter; what
+            // happens on the sensor is told by the wince and the
+            // stage, not by a notification row bouncing every 30 s
+            if (m_shownFingerMessages.contains(text))
+                return;
+            m_shownFingerMessages.insert(text);
+        }
+
         // shown verbatim: the truth on screen comes from the PAM
         // conversation, never from a second source
         Q_EMIT message(m_socket, text);
@@ -219,9 +254,14 @@ namespace SDDM {
 
         // the same error from the SENSOR channel is a typed event,
         // not text: the theme wince counts codes, never PAM
-        // sentences (hundreds of languages, the 15 nov. rule)
+        // sentences (hundreds of languages, the 15 nov. rule).
+        // Only a REFUSED finger winsces (the 16 nov. rule): a
+        // window that timed out untouched is a silent non-event,
+        // watching the greeter must look like nothing happens
         if (type == Auth::ERROR_AUTHENTICATION && m_state == Running && m_socket
-                && channel->type() == AuthChannel::Fingerprint)
+                && channel->type() == AuthChannel::Fingerprint
+                && channel->refused()
+                && !channel->timedOut())
             Q_EMIT sensorVerifyFailed(m_socket);
     }
 
@@ -364,21 +404,35 @@ namespace SDDM {
             channel->deleteLater();
         } else if (channel->type() == AuthChannel::Fingerprint) {
             m_fingerprintChannel = nullptr;
-            const bool honest = channel->engaged();
+            const bool refused = channel->refused();
+            const bool engaged = channel->engaged();
             channel->deleteLater();
 
-            if (!honest) {
-                // deterministic death: no sensor activity was ever
-                // seen — recreate slowly, whatever the policy
+            // deterministic death: no sensor activity was ever seen
+            // (locked account, refused birth, missing device) — an
+            // immediate rebirth would spin in a hot loop; the
+            // channel comes back when the cause has had time to
+            // clear
+            if (!engaged) {
                 qWarning() << "AuthBroker: fingerprint channel died without any sensor activity, rebirth in 30 s";
                 scheduleFingerprintRebirth();
                 publishStage();
                 return;
             }
 
-            // an honest death: real fingers met the reader and the
-            // conversation failed. The policy is the only judge of
-            // what happens next
+            // a REFUSED finger is the only honest death (the 16
+            // nov. rule): it alone consumes the budget. A window
+            // that timed out untouched is a quiet non-event — no
+            // wince, no budget — and it reborns at once: the
+            // sensor stays warm, the stage never flickers, watching
+            // the greeter looks like nothing ever happens
+            if (!refused) {
+                if (fingerprintAvailable(m_user))
+                    m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
+                publishStage();
+                return;
+            }
+
             ++m_fingerDeaths;
             if (sensorPolicy() == QLatin1String("ThreeAttempts")
                     && m_fingerDeaths >= sensorRetryWindows()) {

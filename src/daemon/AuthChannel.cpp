@@ -94,6 +94,22 @@ namespace SDDM {
         return m_engaged;
     }
 
+    bool AuthChannel::refused() const {
+        return m_refused;
+    }
+
+    bool AuthChannel::timedOut() const {
+        return m_timedOut;
+    }
+
+    void AuthChannel::setRefused() {
+        m_refused = true;
+    }
+
+    void AuthChannel::setTimedOut() {
+        m_timedOut = true;
+    }
+
     Auth *AuthChannel::auth() const {
         return m_auth;
     }

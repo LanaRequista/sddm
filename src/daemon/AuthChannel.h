@@ -70,6 +70,13 @@ namespace SDDM {
         // of recreating it in a hot loop
         bool engaged() const;
 
+        // why a fingerprint channel died, told by the broker from the
+        // conversation's last messages (a mismatch vs a timeout)
+        bool refused() const;
+        bool timedOut() const;
+        void setRefused();
+        void setTimedOut();
+
         // the private Auth instance of this conversation, for the
         // display to attach the X11 cookie on victory
         Auth *auth() const;
@@ -136,6 +143,19 @@ namespace SDDM {
 
         // any activity ever received from this channel's helper
         bool m_engaged = false;
+
+        // the fingerprint channel died because a real finger was
+        // REFUSED (a mismatch), as opposed to a verify window timing
+        // out untouched. Set by the broker from the conv message --
+        // the ONLY text classification of the engine, one place,
+        // loose patterns, benign fallback (the 16 nov. report: idle
+        // timeouts were counted as swipe failures, winces fired
+        // while nobody touched the sensor and burned the budget)
+        bool m_refused = false;
+
+        // the fingerprint channel's last window expired without a
+        // finger ever being refused
+        bool m_timedOut = false;
 
         // a channel being shut down stops reporting: its last words
         // would be the symptoms of an execution, not of a failure

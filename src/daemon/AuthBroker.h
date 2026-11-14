@@ -44,6 +44,7 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QSet>
 
 #include "Auth.h"
 #include "AuthChannel.h"
@@ -154,6 +155,15 @@ namespace SDDM {
         // failed sensor conversations (verify windows) of the current
         // race — the ThreeAttempts budget
         int m_fingerDeaths = 0;
+
+        // one PAM sentence from the fingerprint channel is displayed
+        // ONCE per race: byte-identity, no linguistics, no semantics
+        // -- the rebirth cycle of idle verify windows must stay
+        // invisible (the 16 nov. rule), so the repeated "Placez
+        // votre doigt" of each new window never reaches the
+        // greeter's notification row again. Classification still
+        // runs on every copy, display alone is filtered
+        QSet<QString> m_shownFingerMessages;
         // the password of an airlock submission, waiting for the
         // keyboard channel to hold its prompt; empty outside the
         // birth-to-submission window
