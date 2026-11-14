@@ -25,6 +25,7 @@
 #include "Display.h"
 
 #include <QDebug>
+#include <QEventLoop>
 #include <QTimer>
 #include <QLocalSocket>
 #include <QDBusConnection>
@@ -396,6 +397,28 @@ namespace SDDM {
         m_pendingPassword.clear();
         publishStage();
 
+        // the black bridge (14 nov., live root cause): announce the
+        // success to the greeter BEFORE the session exists. The
+        // session's Wayland compositor takes the DRM master the
+        // moment the winner helper starts, and the greeter's outputs
+        // die in the same second ("There are no outputs") — a fade
+        // announced after the launch can never render. Announced
+        // here, the greeter still owns its outputs and plays its
+        // fade to black while nothing else moves
+        if (m_socket)
+            Q_EMIT loginSucceeded(m_socket);
+
+        // hold the winner the time of the greeter's fade (700 ms in
+        // the theme) plus a margin; the event loop keeps running so
+        // the greeter socket is flushed and the fade actually plays.
+        // The helper is blocked waiting for this slot to return:
+        // the delayed session start is invisible to it
+        {
+            QEventLoop bridge;
+            QTimer::singleShot(900, &bridge, &QEventLoop::quit);
+            bridge.exec();
+        }
+
         // the cookie must sit in the winner's bundle before the
         // authenticated reply carries it to the helper: this slot
         // runs synchronously, before the reply is composed
@@ -413,11 +436,6 @@ namespace SDDM {
             m_keyboardChannel->deleteLater();
             m_keyboardChannel = nullptr;
         }
-
-        // the greeter may already be gone: reporting to a null socket
-        // would crash the daemon (SocketWriter dereferences it)
-        if (m_socket)
-            Q_EMIT loginSucceeded(m_socket);
     }
 
     bool AuthBroker::fingerprintAvailable(const QString &user) const {
