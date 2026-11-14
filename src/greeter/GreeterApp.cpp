@@ -45,6 +45,10 @@
 #include <QVersionNumber>
 #include <QSurfaceFormat>
 
+#ifdef HAVE_LAYERSHELLQT
+#include <LayerShellQt/Window>
+#endif
+
 #include <iostream>
 
 #define TR(x) QT_TRANSLATE_NOOP("Command line parser", QStringLiteral(x))
@@ -168,6 +172,27 @@ namespace SDDM {
         });
 
         view->engine()->addImportPath(QStringLiteral(IMPORTS_INSTALL_DIR));
+
+        // The keyboard belongs to the one interactive door (the 13 nov.
+        // "one entrance" decision, enforced at the window level): each
+        // screen is a separate layer surface, and the compositor hands
+        // the keyboard to the last surface that asked for it -- a
+        // secondary view, born after the primary one, steals it and the
+        // primary password field stays cursor-less (14 nov. recette,
+        // point 2). Exclusive keyboard interactivity on the primary
+        // view, none on the secondary ones (wallpaper only, nothing
+        // to type). Inert when the surface is not a layer shell
+        // (X11, or the plugin is not in use).
+        const bool isPrimary = QGuiApplication::primaryScreen() == screen;
+#ifdef HAVE_LAYERSHELLQT
+        if (auto *shellWindow = LayerShellQt::Window::get(view)) {
+            shellWindow->setKeyboardInteractivity(isPrimary
+                ? LayerShellQt::Window::KeyboardInteractivityExclusive
+                : LayerShellQt::Window::KeyboardInteractivityNone);
+        }
+#else
+        Q_UNUSED(isPrimary);
+#endif
 
         // connect proxy signals
         connect(m_proxy, &GreeterProxy::loginSucceeded, view, &QQuickView::close);

@@ -46,6 +46,16 @@ target_link_libraries(${GREETER_TARGET}
                       ${LIBXCB_LIBRARIES}
                       ${LIBXKB_LIBRARIES})
 
+# exclusive keyboard interactivity on the primary greeter view (the
+# multi-screen focus fix); optional: absent on Qt5/X11-only builds
+find_package(LayerShellQt 6 QUIET)
+if(LayerShellQt_FOUND)
+    target_link_libraries(${GREETER_TARGET} LayerShellQt::Interface)
+    target_compile_definitions(${GREETER_TARGET} PRIVATE HAVE_LAYERSHELLQT)
+else()
+    message(WARNING "LayerShellQt not found: the multi-screen keyboard focus fix is disabled")
+endif()
+
 if(JOURNALD_FOUND)
     target_link_libraries(${GREETER_TARGET} ${JOURNALD_LIBRARIES})
 endif()
