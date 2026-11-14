@@ -48,6 +48,7 @@ namespace SDDM {
     public slots:
         void informationMessage(QLocalSocket *socket, const QString &message);
         void authStage(QLocalSocket *socket, const QString &stage);
+        void sensorVerifyFailed(QLocalSocket *socket);
         void loginFailed(QLocalSocket *socket);
         void loginSucceeded(QLocalSocket *socket);
 

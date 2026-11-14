@@ -51,7 +51,15 @@ namespace SDDM {
         // selected user, "password" when only the keyboard remains,
         // "" when no race runs. The motor owns this truth; themes
         // display it, they never guess it from messages
-        AuthStage
+        AuthStage,
+        // fingerprint login: the sensor channel died of an honest
+        // verify failure (a swipe that did not match) while the race
+        // ran. A TYPED event, never text: the daemon alone knows
+        // which channel spoke, so themes react to a code instead of
+        // pattern-matching PAM sentences in one language among
+        // hundreds (the 15 nov. decision, extending the 9 nov.
+        // msg_style rule)
+        SensorVerifyFailed
     };
 
     enum Capability {

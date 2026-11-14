@@ -258,6 +258,13 @@ namespace SDDM {
                     emit authStageChanged(stage);
                 }
                 break;
+                case DaemonMessages::SensorVerifyFailed: {
+                    // typed event: no payload, no text to display --
+                    // the raw PAM message travels separately, verbatim
+                    qDebug() << "Message received from daemon: SensorVerifyFailed";
+                    emit sensorVerifyFailed();
+                }
+                break;
                 default: {
                     // log message
                     qWarning() << "Unknown message received from daemon.";

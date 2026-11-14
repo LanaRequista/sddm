@@ -216,6 +216,13 @@ namespace SDDM {
         if (type == Auth::ERROR_AUTHENTICATION && m_state == Running && m_socket
                 && channel->type() == AuthChannel::Keyboard)
             Q_EMIT loginFailed(m_socket);
+
+        // the same error from the SENSOR channel is a typed event,
+        // not text: the theme wince counts codes, never PAM
+        // sentences (hundreds of languages, the 15 nov. rule)
+        if (type == Auth::ERROR_AUTHENTICATION && m_state == Running && m_socket
+                && channel->type() == AuthChannel::Fingerprint)
+            Q_EMIT sensorVerifyFailed(m_socket);
     }
 
     void AuthBroker::onSessionFinished(AuthChannel *channel, Auth::HelperExitStatus status) {

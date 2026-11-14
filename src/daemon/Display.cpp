@@ -178,6 +178,10 @@ namespace SDDM {
             if (socket)
                 m_socketServer->authStage(socket, stage);
         });
+        connect(m_broker, &AuthBroker::sensorVerifyFailed, this, [this](QLocalSocket *socket) {
+            if (socket)
+                m_socketServer->sensorVerifyFailed(socket);
+        });
         connect(m_broker, &AuthBroker::sessionStarted, this, &Display::slotSessionStarted);
         connect(m_broker, &AuthBroker::sessionFinished, this, [this](Auth::HelperExitStatus) {
             // the winner's session is over (logout) or failed to

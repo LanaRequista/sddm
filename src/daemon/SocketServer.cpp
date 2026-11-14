@@ -242,4 +242,8 @@ namespace SDDM {
     void SocketServer::authStage(QLocalSocket *socket, const QString &stage) {
         SocketWriter(socket) << quint32(DaemonMessages::AuthStage) << stage;
     }
+
+    void SocketServer::sensorVerifyFailed(QLocalSocket *socket) {
+        SocketWriter(socket) << quint32(DaemonMessages::SensorVerifyFailed);
+    }
 }

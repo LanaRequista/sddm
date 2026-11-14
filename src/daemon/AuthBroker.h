@@ -97,6 +97,12 @@ namespace SDDM {
         // "fingerprint" (sensor channel available), "password"
         // (keyboard only), "" (no race); published at every transition
         void authStage(QLocalSocket *socket, const QString &stage);
+        // a typed event: a live race lost a fingerprint verify
+        // window to an honest mismatch (a bad swipe). Published
+        // instead of text patterns: themes react to the CODE and
+        // display the raw PAM message verbatim, fully
+        // language-independent (the 15 nov. decision)
+        void sensorVerifyFailed(QLocalSocket *socket);
 
         // the winner's session started (the greeter may go) or
         // finished (logout: the display cycle takes over)
