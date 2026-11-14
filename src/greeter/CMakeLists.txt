@@ -47,13 +47,17 @@ target_link_libraries(${GREETER_TARGET}
                       ${LIBXKB_LIBRARIES})
 
 # exclusive keyboard interactivity on the primary greeter view (the
-# multi-screen focus fix); optional: absent on Qt5/X11-only builds
-find_package(LayerShellQt 6 QUIET)
-if(LayerShellQt_FOUND)
-    target_link_libraries(${GREETER_TARGET} LayerShellQt::Interface)
-    target_compile_definitions(${GREETER_TARGET} PRIVATE HAVE_LAYERSHELLQT)
-else()
-    message(WARNING "LayerShellQt not found: the multi-screen keyboard focus fix is disabled")
+# multi-screen focus fix); Qt6-only (LayerShellQt depends on Qt6::Gui,
+# which must never leak into the Qt5 build -- the Arch package builds
+# both greeters from the same CMakeLists)
+if(QT_MAJOR_VERSION EQUAL "6")
+    find_package(LayerShellQt 6 QUIET)
+    if(LayerShellQt_FOUND)
+        target_link_libraries(${GREETER_TARGET} LayerShellQt::Interface)
+        target_compile_definitions(${GREETER_TARGET} PRIVATE HAVE_LAYERSHELLQT)
+    else()
+        message(WARNING "LayerShellQt not found: the multi-screen keyboard focus fix is disabled")
+    endif()
 endif()
 
 if(JOURNALD_FOUND)
