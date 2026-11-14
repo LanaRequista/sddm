@@ -68,8 +68,8 @@ namespace SDDM {
                                                                                                    "Any other value falls back to ThreeAttempts."));
             Entry(SensorRetryWindows, int,       3,                                              _S("Under the ThreeAttempts policy: how many failed sensor\n"
                                                                                                    "conversations (verify windows) exhaust the sensor channel.\n"
-                                                                                                   "Each window lets pam_fprintd take its own internal retries.\n"
-                                                                                                   "Range 1..10."));
+                                                                                                   "The packaged stack pins pam_fprintd to max-tries=1, so a\n"
+                                                                                                   "window is ONE swipe: a missed finger counts. Range 1..10."));
         );
 
         Section(Theme,
