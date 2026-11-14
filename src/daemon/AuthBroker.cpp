@@ -195,40 +195,58 @@ namespace SDDM {
         declareWinner(channel, user);
     }
 
+    // the ONLY text classification of the engine (the 16 nov.
+    // report: an idle verify TIMEOUT reached the theme as a swipe
+    // failure somme -- winces fired while nobody touched the sensor
+    // and quietly burned the shake budget). The refusal/timeout
+    // truth lives nowhere else but the PAM sentence: one place, loose
+    // patterns, benign fallback -- an unknown language classifies
+    // nothing, the wince stays silent and no lie is told.
+    // Returns true when THIS message is the first refusal ever seen
+    // on the channel: the one event that winces (a window refusing
+    // several times winces once, like the display rule)
+    bool AuthBroker::classifyFingerMessage(AuthChannel *channel, const QString &text) {
+        if (channel->type() != AuthChannel::Fingerprint || m_state != Running)
+            return false;
+
+        // normalized: the accented capital of "Échec" must not hide
+        // the unaccented patterns (the 15 nov. lesson, replayed
+        // engine-side once and for all)
+        const QString plain = QString(text).normalized(QString::NormalizationForm_D)
+                .remove(QRegularExpression(QLatin1String("[\\x{0300}-\\x{036f}]")));
+        if (plain.contains(QRegularExpression(QLatin1String("reconnaissance|did not match|no.?match|failed to match"),
+                                              QRegularExpression::CaseInsensitiveOption))) {
+            const bool first = !channel->refused();
+            channel->setRefused();
+            return first;
+        }
+        if (plain.contains(QRegularExpression(QLatin1String("expir|time[- ]?out|delai"),
+                                              QRegularExpression::CaseInsensitiveOption)))
+            channel->setTimedOut();
+        return false;
+    }
+
+    // the rebirth cycle must be INVISIBLE (the 16 nov. rule): one
+    // display per sentence per race -- the repeated hint of every
+    // reborn window never reaches the greeter; what happens on the
+    // sensor is told by the wince and the stage, not by a
+    // notification row bouncing every 30 s
+    bool AuthBroker::shownFingerAlready(const QString &text) {
+        if (m_shownFingerMessages.contains(text))
+            return true;
+        m_shownFingerMessages.insert(text);
+        return false;
+    }
+
     void AuthBroker::onInfo(AuthChannel *channel, const QString &text, Auth::Info type) {
         Q_UNUSED(type)
 
-        // the ONLY text classification of the engine (the 16 nov.
-        // report: an idle verify TIMEOUT reached the theme as a
-        // swipe failure somme -- winces fired while nobody touched
-        // the sensor and quietly burned the shake budget). The
-        // refusal/timeout truth lives nowhere else but the PAM
-        // sentence: one place, loose patterns, and the fallback is
-        // benign -- an unknown language classifies nothing, so the
-        // wince stays silent and the window rebirth takes the slow
-        // deterministic road instead of a lie
-        if (channel->type() == AuthChannel::Fingerprint && m_state == Running) {
-            // normalized: the accented capital of "Échec" must not
-            // hide the unaccented patterns (the 15 nov. lesson,
-            // replayed engine-side once and for all)
-            const QString plain = QString(text).normalized(QString::NormalizationForm_D)
-                    .remove(QRegularExpression(QLatin1String("[\\x{0300}-\\x{036f}]")));
-            if (plain.contains(QRegularExpression(QLatin1String("reconnaissance|did not match|no.?match|failed to match"),
-                                                  QRegularExpression::CaseInsensitiveOption)))
-                channel->setRefused();
-            else if (plain.contains(QRegularExpression(QLatin1String("expir|time[- ]?out|delai"),
-                                                       QRegularExpression::CaseInsensitiveOption)))
-                channel->setTimedOut();
-
-            // the rebirth cycle must be INVISIBLE (the 16 nov. rule):
-            // one display per sentence per race -- the repeated hint
-            // of every reborn window never reaches the greeter; what
-            // happens on the sensor is told by the wince and the
-            // stage, not by a notification row bouncing every 30 s
-            if (m_shownFingerMessages.contains(text))
-                return;
-            m_shownFingerMessages.insert(text);
-        }
+        // pam_fprintd's plain hints (PAM_TEXT_INFO) still classify --
+        // the timeout sentence arrived on this road in some logs
+        classifyFingerMessage(channel, text);
+        const bool fingerprintRoute = channel->type() == AuthChannel::Fingerprint && m_state == Running;
+        if (fingerprintRoute && shownFingerAlready(text))
+            return;
 
         // shown verbatim: the truth on screen comes from the PAM
         // conversation, never from a second source
@@ -236,9 +254,21 @@ namespace SDDM {
     }
 
     void AuthBroker::onError(AuthChannel *channel, const QString &text, Auth::Error type) {
+        // the 22h30 lesson, in the flesh: pam_fprintd speaks a
+        // mid-conversation REFUSAL as PAM_ERROR_MSG, so the refusal
+        // sentence arrives HERE (PamBackend maps it to
+        // ERROR_AUTHENTICATION), not in onInfo -- the classification
+        // of the 16 nov. sat on the wrong road and a refused window
+        // was never marked: no wince, no budget, no keyboard switch
+        const bool refusalEvent = classifyFingerMessage(channel, text);
+        const bool fingerprintRoute = channel->type() == AuthChannel::Fingerprint && m_state == Running;
+        const bool silenceDisplay = fingerprintRoute && shownFingerAlready(text);
+
         // the message carries the PAM truth verbatim, whatever channel
-        // spoke; the greeter displays it as it arrived
-        Q_EMIT message(m_socket, text);
+        // spoke; the greeter displays it as it arrived (deduplicated
+        // on the sensor road)
+        if (!silenceDisplay)
+            Q_EMIT message(m_socket, text);
 
         // loginFailed is the announcement of a REFUSED SUBMISSION: it
         // belongs to the keyboard channel only, the one carrying the
@@ -252,16 +282,14 @@ namespace SDDM {
                 && channel->type() == AuthChannel::Keyboard)
             Q_EMIT loginFailed(m_socket);
 
-        // the same error from the SENSOR channel is a typed event,
-        // not text: the theme wince counts codes, never PAM
-        // sentences (hundreds of languages, the 15 nov. rule).
-        // Only a REFUSED finger winsces (the 16 nov. rule): a
-        // window that timed out untouched is a silent non-event,
-        // watching the greeter must look like nothing happens
-        if (type == Auth::ERROR_AUTHENTICATION && m_state == Running && m_socket
-                && channel->type() == AuthChannel::Fingerprint
-                && channel->refused()
-                && !channel->timedOut())
+        // a typed event, not text: the theme wince counts codes,
+        // never PAM sentences (hundreds of languages, the 15 nov.
+        // rule). Only a FIRST refusal winces (the 16 nov. rule: a
+        // window yelling "refused" several times is one refusal
+        // seen, like the display rule); a timed-out window stays
+        // silent, watching the greeter must look like nothing
+        // happens
+        if (refusalEvent && m_socket)
             Q_EMIT sensorVerifyFailed(m_socket);
     }
 

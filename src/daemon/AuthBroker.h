@@ -129,6 +129,13 @@ namespace SDDM {
         // birth or death, victory) so the greeter always holds the
         // truth, never a memory of a transition
         void publishStage();
+
+        // the classification of the sensor's PAM sentences, called on
+        // BOTH message roads -- pam_fprintd refuses the finger in a
+        // PAM_ERROR_MSG mid-conversation (the 22h30 lesson), and the
+        // hint/timeout sentences ride the info road
+        bool classifyFingerMessage(AuthChannel *channel, const QString &text);
+        bool shownFingerAlready(const QString &text);
         // the sensor availability policy of [Fingerprint] SensorPolicy,
         // validated (anything unknown falls back to ThreeAttempts)
         QString sensorPolicy() const;
