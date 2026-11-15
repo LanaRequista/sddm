@@ -117,6 +117,14 @@ namespace SDDM {
         void onError(AuthChannel *channel, const QString &text, Auth::Error type);
         void onRequestChanged(AuthChannel *channel);
         void onSessionFinished(AuthChannel *channel, Auth::HelperExitStatus status);
+        // fprintd's live verdict on the sensor's verify window, the
+        // D-Bus signal VerifyStatus(result, error). The classification
+        // of the sensor windows rides the NATIVE codes (the 15 nov.
+        // decision, closing the text-classification debt): the
+        // refused/timed-out truth of a window comes from
+        // "verify-no-match" / "verify-timeout", never from the wording
+        // of a translated PAM sentence
+        void onVerifyStatus(bool result, const QString &error);
 
     private:
         void spawnChannels();
@@ -130,11 +138,12 @@ namespace SDDM {
         // truth, never a memory of a transition
         void publishStage();
 
-        // the classification of the sensor's PAM sentences, called on
-        // BOTH message roads -- pam_fprintd refuses the finger in a
-        // PAM_ERROR_MSG mid-conversation (the 22h30 lesson), and the
-        // hint/timeout sentences ride the info road
-        bool classifyFingerMessage(AuthChannel *channel, const QString &text);
+        // the classification of the sensor's verify windows from the
+        // NATIVE fprintd codes: the broker subscribes ONCE to the
+        // device's VerifyStatus D-Bus signal; the codes classify, the
+        // PAM sentences only display. No text classification exists
+        // anywhere in the engine anymore
+        bool ensureVerifySubscription();
         bool shownFingerAlready(const QString &text);
         // the sensor availability policy of [Fingerprint] SensorPolicy,
         // validated (anything unknown falls back to ThreeAttempts)
@@ -162,6 +171,12 @@ namespace SDDM {
         // failed sensor conversations (verify windows) of the current
         // race — the ThreeAttempts budget
         int m_fingerDeaths = 0;
+
+        // the fprintd device the broker subscribed to for the native
+        // VerifyStatus codes (empty until resolved); the subscription
+        // lives for the broker's whole life, one signal delivery for
+        // every race and window
+        QString m_verifyDevicePath;
 
         // one PAM sentence from the fingerprint channel is displayed
         // ONCE per race: byte-identity, no linguistics, no semantics

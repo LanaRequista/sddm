@@ -26,7 +26,6 @@
 
 #include <QDebug>
 #include <QEventLoop>
-#include <QRegularExpression>
 #include <QTimer>
 #include <QLocalSocket>
 #include <QDBusConnection>
@@ -195,35 +194,81 @@ namespace SDDM {
         declareWinner(channel, user);
     }
 
-    // the ONLY text classification of the engine (the 16 nov.
-    // report: an idle verify TIMEOUT reached the theme as a swipe
-    // failure somme -- winces fired while nobody touched the sensor
-    // and quietly burned the shake budget). The refusal/timeout
-    // truth lives nowhere else but the PAM sentence: one place, loose
-    // patterns, benign fallback -- an unknown language classifies
-    // nothing, the wince stays silent and no lie is told.
-    // Returns true when THIS message is the first refusal ever seen
-    // on the channel: the one event that winces (a window refusing
-    // several times winces once, like the display rule)
-    bool AuthBroker::classifyFingerMessage(AuthChannel *channel, const QString &text) {
-        if (channel->type() != AuthChannel::Fingerprint || m_state != Running)
-            return false;
+    // CLOSING THE TEXT-CLASSIFICATION DEBT (the 15 nov. decision, the
+    // human's rule: NEVER classify on labels, classify on CODES): the
+    // broker subscribes once to fprintd's VerifyStatus D-Bus signal
+    // and the refusal/timeout truth of every verify window comes from
+    // the native codes, invariant across languages and pam_fprintd
+    // updates. The PAM sentences still travel verbatim to the greeter
+    // for display -- they just never decide anything anymore.
+    bool AuthBroker::ensureVerifySubscription() {
+        if (!m_verifyDevicePath.isEmpty())
+            return true;
 
-        // normalized: the accented capital of "Échec" must not hide
-        // the unaccented patterns (the 15 nov. lesson, replayed
-        // engine-side once and for all)
-        const QString plain = QString(text).normalized(QString::NormalizationForm_D)
-                .remove(QRegularExpression(QLatin1String("[\\x{0300}-\\x{036f}]")));
-        if (plain.contains(QRegularExpression(QLatin1String("reconnaissance|did not match|no.?match|failed to match"),
-                                              QRegularExpression::CaseInsensitiveOption))) {
-            const bool first = !channel->refused();
-            channel->setRefused();
-            return first;
+        // the device is resolved through the manager, never hardcoded
+        // (the same road as fingerprintAvailable): this machine
+        // answers /net/reactivated/Fprint/Device/0 with a capital F
+        const QDBusConnection bus = QDBusConnection::systemBus();
+        QDBusInterface manager(QStringLiteral("net.reactivated.Fprint"),
+                               QStringLiteral("/net/reactivated/Fprint/Manager"),
+                               QStringLiteral("net.reactivated.Fprint.Manager"),
+                               bus);
+        if (!manager.isValid()) {
+            qWarning() << "AuthBroker: fprintd manager not reachable, no verify subscription";
+            return false;
         }
-        if (plain.contains(QRegularExpression(QLatin1String("expir|time[- ]?out|delai"),
-                                              QRegularExpression::CaseInsensitiveOption)))
-            channel->setTimedOut();
-        return false;
+
+        const QDBusReply<QDBusObjectPath> device = manager.call(QStringLiteral("GetDefaultDevice"));
+        if (!device.isValid()) {
+            qWarning() << "AuthBroker: no fingerprint device for the verify subscription:" << device.error().message();
+            return false;
+        }
+
+        const bool subscribed = QDBusConnection::systemBus().connect(QStringLiteral("net.reactivated.Fprint"),
+                                            device.value().path(),
+                                            QStringLiteral("net.reactivated.Fprint.Device"),
+                                            QStringLiteral("VerifyStatus"),
+                                            this, SLOT(onVerifyStatus(bool,QString)));
+        if (!subscribed) {
+            qWarning() << "AuthBroker: VerifyStatus subscription refused on" << device.value().path();
+            return false;
+        }
+
+        m_verifyDevicePath = device.value().path();
+        qDebug() << "AuthBroker: subscribed to VerifyStatus on" << m_verifyDevicePath;
+        return true;
+    }
+
+    // The codes of fprintd (libfprint's verify results), the only
+    // classifier inputs of the engine:
+    //  - verify-no-match: a REAL finger was analyzed and refused --
+    //    the one honest death of a window (budget, wince);
+    //  - verify-timeout: the window expired untouched -- a quiet
+    //    non-event, no wince, no budget, warm rebirth;
+    //  - anything else (verify-retry-scan, verify-swipe-too-short,
+    //    verify-finger-not-centered, ...): an in-window retry, the
+    //    window is still alive, nothing is classified (the benign
+    //    fallback is now structural: an unknown code counts nothing
+    //    and lies to nobody, whatever the language of the PAM text).
+    // The signal is exclusive with a live claim: while a sensor
+    // channel of this broker runs, fprintd serves no other verify
+    // (sudo included); the guards below keep a code arriving outside
+    // a live window (foreign verify during a rebirth gap) from
+    // marking anything at all.
+    void AuthBroker::onVerifyStatus(bool result, const QString &error) {
+        if (result || m_state != Running || !m_fingerprintChannel)
+            return;
+
+        if (error == QLatin1String("verify-no-match")) {
+            const bool first = !m_fingerprintChannel->refused();
+            m_fingerprintChannel->setRefused();
+            // one wince per window, like every display rule of this
+            // engine: the first refusal of the window is the event
+            if (first && m_socket)
+                Q_EMIT sensorVerifyFailed(m_socket);
+        } else if (error == QLatin1String("verify-timeout")) {
+            m_fingerprintChannel->setTimedOut();
+        }
     }
 
     // the rebirth cycle must be INVISIBLE (the 16 nov. rule): one
@@ -241,9 +286,6 @@ namespace SDDM {
     void AuthBroker::onInfo(AuthChannel *channel, const QString &text, Auth::Info type) {
         Q_UNUSED(type)
 
-        // pam_fprintd's plain hints (PAM_TEXT_INFO) still classify --
-        // the timeout sentence arrived on this road in some logs
-        classifyFingerMessage(channel, text);
         const bool fingerprintRoute = channel->type() == AuthChannel::Fingerprint && m_state == Running;
         if (fingerprintRoute && shownFingerAlready(text))
             return;
@@ -254,13 +296,6 @@ namespace SDDM {
     }
 
     void AuthBroker::onError(AuthChannel *channel, const QString &text, Auth::Error type) {
-        // the 22h30 lesson, in the flesh: pam_fprintd speaks a
-        // mid-conversation REFUSAL as PAM_ERROR_MSG, so the refusal
-        // sentence arrives HERE (PamBackend maps it to
-        // ERROR_AUTHENTICATION), not in onInfo -- the classification
-        // of the 16 nov. sat on the wrong road and a refused window
-        // was never marked: no wince, no budget, no keyboard switch
-        const bool refusalEvent = classifyFingerMessage(channel, text);
         const bool fingerprintRoute = channel->type() == AuthChannel::Fingerprint && m_state == Running;
         const bool silenceDisplay = fingerprintRoute && shownFingerAlready(text);
 
@@ -281,16 +316,6 @@ namespace SDDM {
         if (type == Auth::ERROR_AUTHENTICATION && m_state == Running && m_socket
                 && channel->type() == AuthChannel::Keyboard)
             Q_EMIT loginFailed(m_socket);
-
-        // a typed event, not text: the theme wince counts codes,
-        // never PAM sentences (hundreds of languages, the 15 nov.
-        // rule). Only a FIRST refusal winces (the 16 nov. rule: a
-        // window yelling "refused" several times is one refusal
-        // seen, like the display rule); a timed-out window stays
-        // silent, watching the greeter must look like nothing
-        // happens
-        if (refusalEvent && m_socket)
-            Q_EMIT sensorVerifyFailed(m_socket);
     }
 
     void AuthBroker::onSessionFinished(AuthChannel *channel, Auth::HelperExitStatus status) {
@@ -312,7 +337,12 @@ namespace SDDM {
 
         // the fingerprint channel exists when the system has
         // something to verify: a birth decision, never a display
-        // decision
+        // decision. The same gesture subscribes the broker to the
+        // native VerifyStatus codes -- the classifier of every sensor
+        // window (a subscription that fails narrows to the benign
+        // fallback: deaths stay unclassified, nothing is counted, no
+        // lie is told)
+        ensureVerifySubscription();
         if (!m_fingerprintChannel && fingerprintAvailable(m_user))
             m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
     }

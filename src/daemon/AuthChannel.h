@@ -146,11 +146,10 @@ namespace SDDM {
 
         // the fingerprint channel died because a real finger was
         // REFUSED (a mismatch), as opposed to a verify window timing
-        // out untouched. Set by the broker from the conv message --
-        // the ONLY text classification of the engine, one place,
-        // loose patterns, benign fallback (the 16 nov. report: idle
-        // timeouts were counted as swipe failures, winces fired
-        // while nobody touched the sensor and burned the budget)
+        // out untouched. Set by the broker from fprintd's NATIVE
+        // D-Bus codes (verify-no-match / verify-timeout) -- the
+        // engine classifies machines' codes, never translated PAM
+        // sentences (the 15 nov. rule, closing the 16 nov. debt)
         bool m_refused = false;
 
         // the fingerprint channel's last window expired without a
