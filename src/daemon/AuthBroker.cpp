@@ -223,18 +223,31 @@ namespace SDDM {
             return false;
         }
 
-        const bool subscribed = QDBusConnection::systemBus().connect(QStringLiteral("net.reactivated.Fprint"),
-                                            device.value().path(),
-                                            QStringLiteral("net.reactivated.Fprint.Device"),
-                                            QStringLiteral("VerifyStatus"),
-                                            this, SLOT(onVerifyStatus(bool,QString)));
-        if (!subscribed) {
-            qWarning() << "AuthBroker: VerifyStatus subscription refused on" << device.value().path();
+        // the two dialects of the same verdict signal (see the slots'
+        // comment): a Qt D-Bus connect matches on name AND derived
+        // signature — on this machine's legacy-only fprintd the
+        // modern-shaped slot was silently never called (the 15 nov.
+        // live report: no wince, no budget, infinite rebirth). Both
+        // connects are attempted; an absent dialect simply never
+        // delivers, the present one feeds the classifier
+        const bool legacy = QDBusConnection::systemBus().connect(QStringLiteral("net.reactivated.Fprint"),
+                                    device.value().path(),
+                                    QStringLiteral("net.reactivated.Fprint.Device"),
+                                    QStringLiteral("VerifyStatus"),
+                                    this, SLOT(onVerifyStatus(QString,bool)));
+        const bool modern = QDBusConnection::systemBus().connect(QStringLiteral("net.reactivated.Fprint"),
+                                    device.value().path(),
+                                    QStringLiteral("net.reactivated.Fprint.Device"),
+                                    QStringLiteral("VerifyResult"),
+                                    this, SLOT(onVerifyResult(bool,QString)));
+        if (!legacy && !modern) {
+            qWarning() << "AuthBroker: neither VerifyStatus nor VerifyResult subscription accepted on" << device.value().path();
             return false;
         }
+        qDebug() << "AuthBroker: connected to the verify signal on" << device.value().path()
+                 << "(legacy sb =" << legacy << ", modern bs =" << modern << ")";
 
         m_verifyDevicePath = device.value().path();
-        qDebug() << "AuthBroker: subscribed to VerifyStatus on" << m_verifyDevicePath;
         return true;
     }
 
@@ -254,18 +267,46 @@ namespace SDDM {
     // (sudo included); the guards below keep a code arriving outside
     // a live window (foreign verify during a rebirth gap) from
     // marking anything at all.
-    void AuthBroker::onVerifyStatus(bool result, const QString &error) {
-        if (result || m_state != Running || !m_fingerprintChannel)
+    void AuthBroker::onVerifyStatus(const QString &result, bool done) {
+        Q_UNUSED(done)
+        classifyVerify(result);
+    }
+
+    void AuthBroker::onVerifyResult(bool result, const QString &error) {
+        Q_UNUSED(result)
+        classifyVerify(error);
+    }
+
+    void AuthBroker::classifyVerify(const QString &code) {
+        // the spy (one line, paid for itself at every recette): the
+        // codes the device really emits land in the journal, so the
+        // legacy dialect's exact wording is never an assumption
+        // again
+        qDebug() << "AuthBroker: verify code =" << code;
+
+        if (m_state != Running || !m_fingerprintChannel)
             return;
 
-        if (error == QLatin1String("verify-no-match")) {
-            const bool first = !m_fingerprintChannel->refused();
-            m_fingerprintChannel->setRefused();
-            // one wince per window, like every display rule of this
-            // engine: the first refusal of the window is the event
-            if (first && m_socket)
+        if (code == QLatin1String("verify-no-match")) {
+            // one wince per refused window: the theme's shake rides
+            // every analyzed-and-refused finger, live, not once per
+            // conversation
+            if (m_socket)
                 Q_EMIT sensorVerifyFailed(m_socket);
-        } else if (error == QLatin1String("verify-timeout")) {
+            m_fingerprintChannel->setRefused();
+
+            // THE LIVE BUDGET (the 15 nov. fix): every refused window
+            // consumes one unit HERE, at the moment the sensor says
+            // no — never later at the conversation's death, where a
+            // pam_fprintd that retries internally would bill three
+            // fingers as one. The channel itself is NEVER killed
+            // here: with max-tries=1 the PAM conversation dies on
+            // its own right after this swipe, and the existing
+            // channelDied logic (refused + budget spent -> no
+            // rebirth, stage published) does the switch — slamming a
+            // PAM door mid-conversation is a lesson already paid
+            ++m_fingerDeaths;
+        } else if (code == QLatin1String("verify-timeout")) {
             m_fingerprintChannel->setTimedOut();
         }
     }
@@ -490,11 +531,17 @@ namespace SDDM {
                 return;
             }
 
-            ++m_fingerDeaths;
+            // The budget is consumed LIVE by the classifier
+            // (classifyVerify), one refused window at the moment the
+            // sensor says no — the conversation's death never counts:
+            // a pam_fprintd that retries internally bills each finger
+            // once, exactly what the user experienced. Here we only
+            // honor the state left by the classifier: a refused
+            // conversation whose budget is gone does not reborn
             if (sensorPolicy() == QLatin1String("ThreeAttempts")
                     && m_fingerDeaths >= sensorRetryWindows()) {
                 qWarning() << "AuthBroker: sensor budget exhausted"
-                           << "(" << m_fingerDeaths << "failed windows), only the keyboard channel remains";
+                           << "(" << m_fingerDeaths << "refused windows), only the keyboard channel remains";
                 publishStage();
                 return;
             }

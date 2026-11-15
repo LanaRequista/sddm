@@ -117,14 +117,18 @@ namespace SDDM {
         void onError(AuthChannel *channel, const QString &text, Auth::Error type);
         void onRequestChanged(AuthChannel *channel);
         void onSessionFinished(AuthChannel *channel, Auth::HelperExitStatus status);
-        // fprintd's live verdict on the sensor's verify window, the
-        // D-Bus signal VerifyStatus(result, error). The classification
-        // of the sensor windows rides the NATIVE codes (the 15 nov.
-        // decision, closing the text-classification debt): the
-        // refused/timed-out truth of a window comes from
-        // "verify-no-match" / "verify-timeout", never from the wording
-        // of a translated PAM sentence
-        void onVerifyStatus(bool result, const QString &error);
+        // fprintd has two dialects (the 15 nov. live lesson): the
+        // modern API announces VerifyResult(bool result, QString
+        // error); the legacy API many installs still serve (fprintd
+        // 1.94 on this machine, confirmed by busctl) announces
+        // VerifyStatus(QString result, bool done). SAME native
+        // codes, opposite argument order — a Qt D-Bus connect
+        // matches on name AND derived signature, so one wrong slot
+        // signature means the signal is silently NEVER delivered.
+        // The broker subscribes to both; both hands the bare code to
+        // the single classifier below
+        void onVerifyStatus(const QString &result, bool done);
+        void onVerifyResult(bool result, const QString &error);
 
     private:
         void spawnChannels();
@@ -139,11 +143,12 @@ namespace SDDM {
         void publishStage();
 
         // the classification of the sensor's verify windows from the
-        // NATIVE fprintd codes: the broker subscribes ONCE to the
-        // device's VerifyStatus D-Bus signal; the codes classify, the
-        // PAM sentences only display. No text classification exists
-        // anywhere in the engine anymore
+        // NATIVE fprintd codes: the broker subscribes ONCE to both
+        // dialects of the device's verify signal (see the slots);
+        // the codes classify, the PAM sentences only display. No
+        // text classification exists anywhere in the engine anymore
         bool ensureVerifySubscription();
+        void classifyVerify(const QString &code);
         bool shownFingerAlready(const QString &text);
         // the sensor availability policy of [Fingerprint] SensorPolicy,
         // validated (anything unknown falls back to ThreeAttempts)
@@ -168,8 +173,9 @@ namespace SDDM {
         // teardown in progress (display stopping): dead channels are
         // not recreated during the dismantling
         bool m_dead = false;
-        // failed sensor conversations (verify windows) of the current
-        // race — the ThreeAttempts budget
+        // refused verify windows (verify-no-match events, counted
+        // live by the classifier) of the current race — the
+        // ThreeAttempts budget
         int m_fingerDeaths = 0;
 
         // the fprintd device the broker subscribed to for the native
