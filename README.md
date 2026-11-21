@@ -1,3 +1,27 @@
+> ## ABOUT THIS FORK — fingerprint-aware login (feature/fingerprint-login)
+>
+> This branch reworks SDDM's authentication core for **N concurrent PAM
+> conversations**: fingerprint and password authenticate the same user
+> at the same time; the first factor to succeed opens the session.
+>
+> - Per display, an `AuthBroker` spawns one `AuthChannel` per method
+>   available to the user (keyboard always; fingerprint when fprintd
+>   reports enrolled fingers) — each with its own helper process, its
+>   own PAM service, its own socket, its own session bundle.
+> - No shared mutable state between channels; first-winner arbitration
+>   with graceful loser shutdown; a channel kind is recreated
+>   immediately after an honest failure, so the screen always keeps
+>   an open way to authenticate. No idle timeout: the sensor window
+>   is infinite and costs nothing while waiting.
+> - Typed protocol events (`SensorVerifyFailed`, a published
+>   `authStage`) — themes render the active factor instead of
+>   pattern-matching localized PAM text.
+> - Daily-driven on real hardware since Nov. 2026. Full change
+>   inventory, engineering journal and the matching Breeze theme:
+>   **https://github.com/LanaRequista/sddm-breeze-fingerprint**
+>
+> The original SDDM README follows.
+
 ## INTRODUCTION
 
 [![IRC Network](https://img.shields.io/badge/irc-freenode-blue.svg "IRC Freenode")](https://webchat.freenode.net/?channels=sddm)
