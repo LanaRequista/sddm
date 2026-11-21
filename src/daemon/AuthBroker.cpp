@@ -61,10 +61,9 @@ namespace SDDM {
         if (user != m_user && (m_fingerprintChannel || m_keyboardChannel))
             stop();
 
-        // E3, the burst lesson: confirming the user whose channels
-        // already run restarts nothing. The channels live, the
-        // greeter keeps its field ready, the user keeps waiting for
-        // whatever he is waiting for
+        // confirming the user whose channels already run restarts
+        // nothing (E3): the channels live, the greeter keeps its
+        // field ready, the race stays as it is
         if (user == m_user && m_state == Running) {
             m_socket = socket;
             return;
@@ -193,20 +192,19 @@ namespace SDDM {
         declareWinner(channel, user);
     }
 
-    // CLOSING THE TEXT-CLASSIFICATION DEBT (the 15 nov. decision, the
-    // human's rule: NEVER classify on labels, classify on CODES): the
-    // broker subscribes once to fprintd's VerifyStatus D-Bus signal
-    // and the refusal/timeout truth of every verify window comes from
-    // the native codes, invariant across languages and pam_fprintd
-    // updates. The PAM sentences still travel verbatim to the greeter
-    // for display -- they just never decide anything anymore.
+    // Classification rides on native codes, never on labels: the
+    // broker subscribes once to fprintd's verify D-Bus signal and the
+    // verdict of every verify window comes from the native codes,
+    // invariant across languages and pam_fprintd updates. The PAM
+    // sentences still travel verbatim to the greeter for display —
+    // they just never decide anything.
     bool AuthBroker::ensureVerifySubscription() {
         if (!m_verifyDevicePath.isEmpty())
             return true;
 
-        // the device is resolved through the manager, never hardcoded
-        // (the same road as fingerprintAvailable): this machine
-        // answers /net/reactivated/Fprint/Device/0 with a capital F
+        // the device is resolved through the manager, never
+        // hardcoded (the same road as fingerprintAvailable): the
+        // bus name and object paths carry a capital F
         const QDBusConnection bus = QDBusConnection::systemBus();
         QDBusInterface manager(QStringLiteral("net.reactivated.Fprint"),
                                QStringLiteral("/net/reactivated/Fprint/Manager"),
@@ -225,10 +223,10 @@ namespace SDDM {
 
         // the two dialects of the same verdict signal (see the slots'
         // comment): a Qt D-Bus connect matches on name AND derived
-        // signature — on this machine's legacy-only fprintd the
-        // modern-shaped slot was silently never called (the 15 nov.
-        // live report: no wince, no budget, infinite rebirth). Both
-        // connects are attempted; an absent dialect simply never
+        // signature — with a wrong slot signature the connect
+        // appears to succeed and the signal is silently never
+        // delivered (no feedback, no budget, endless rebirth).
+        // Both connects are attempted; an absent dialect simply never
         // delivers, the present one feeds the classifier
         const bool legacy = QDBusConnection::systemBus().connect(QStringLiteral("net.reactivated.Fprint"),
                                     device.value().path(),
@@ -254,9 +252,9 @@ namespace SDDM {
     // The codes of fprintd (libfprint's verify results), the only
     // classifier inputs of the engine:
     //  - verify-no-match: a REAL finger was analyzed and refused --
-    //    the one honest death of a window (budget, wince);
+    //    the one honest death of a window (budget, refusal feedback);
     //  - verify-timeout: the window expired untouched -- a quiet
-    //    non-event, no wince, no budget, warm rebirth;
+    //    non-event: no feedback, no budget, warm rebirth;
     //  - anything else (verify-retry-scan, verify-swipe-too-short,
     //    verify-finger-not-centered, ...): an in-window retry, the
     //    window is still alive, nothing is classified (the benign
@@ -278,44 +276,42 @@ namespace SDDM {
     }
 
     void AuthBroker::classifyVerify(const QString &code) {
-        // the spy (one line, paid for itself at every recette): the
-        // codes the device really emits land in the journal, so the
-        // legacy dialect's exact wording is never an assumption
-        // again
+        // trace line: the codes the device really emits land in the
+        // journal, so a dialect's exact wording is never assumed
         qDebug() << "AuthBroker: verify code =" << code;
 
         if (m_state != Running || !m_fingerprintChannel)
             return;
 
         if (code == QLatin1String("verify-no-match")) {
-            // one wince per refused window: the theme's shake rides
-            // every analyzed-and-refused finger, live, not once per
+            // one feedback per refused window: the theme reacts to
+            // every analyzed-and-refused swipe, live, not once per
             // conversation
             if (m_socket)
                 Q_EMIT sensorVerifyFailed(m_socket);
             m_fingerprintChannel->setRefused();
 
-            // THE LIVE BUDGET (the 15 nov. fix): every refused window
-            // consumes one unit HERE, at the moment the sensor says
-            // no — never later at the conversation's death, where a
-            // pam_fprintd that retries internally would bill three
-            // fingers as one. The channel itself is NEVER killed
-            // here: with max-tries=1 the PAM conversation dies on
-            // its own right after this swipe, and the existing
-            // channelDied logic (refused + budget spent -> no
-            // rebirth, stage published) does the switch — slamming a
-            // PAM door mid-conversation is a lesson already paid
+            // the live budget: every refused window consumes one unit
+            // HERE, at the moment the sensor says no — never later at
+            // the conversation's death, where a pam_fprintd that
+            // retries internally would bill three fingers as one.
+            // The channel itself is never killed here: with
+            // max-tries=1 the PAM conversation dies on its own right
+            // after this swipe, and the existing channelDied logic
+            // (refused + budget spent -> no rebirth, stage published)
+            // does the switch — cancelling a PAM conversation
+            // mid-dialog is never a safe move
             ++m_fingerDeaths;
         } else if (code == QLatin1String("verify-timeout")) {
             m_fingerprintChannel->setTimedOut();
         }
     }
 
-    // the rebirth cycle must be INVISIBLE (the 16 nov. rule): one
-    // display per sentence per race -- the repeated hint of every
-    // reborn window never reaches the greeter; what happens on the
-    // sensor is told by the wince and the stage, not by a
-    // notification row bouncing every 30 s
+    // the rebirth cycle must stay invisible: one display per sentence
+    // per race -- the repeated hint of every reborn window never
+    // reaches the greeter; what happens on the sensor is told by the
+    // refusal feedback and the stage, not by a notification row
+    // bouncing at every window
     bool AuthBroker::shownFingerAlready(const QString &text) {
         if (m_shownFingerMessages.contains(text))
             return true;
@@ -345,14 +341,11 @@ namespace SDDM {
         if (!silenceDisplay)
             Q_EMIT message(m_socket, text);
 
-        // loginFailed is the announcement of a REFUSED SUBMISSION: it
-        // belongs to the keyboard channel only, the one carrying the
-        // user's password submission. An error of the sensor channel
-        // (failed window, exhausted budget) is not a refused
-        // submission -- the user may be typing right now, and the
-        // theme's failure treatment (field wipe, failure label) must
-        // not erase it (the 13 nov. live report: field emptied while
-        // typing, at the death of the sensor channel)
+        // a sensor error is not a refused submission -- the user may
+        // be typing right now, and the theme's failure treatment
+        // (field wipe, failure label) must not erase it: a
+        // loginFailed fired on a sensor death would wipe the
+        // password field mid-typing
         if (type == Auth::ERROR_AUTHENTICATION && m_state == Running && m_socket
                 && channel->type() == AuthChannel::Keyboard)
             Q_EMIT loginFailed(m_socket);
@@ -371,9 +364,9 @@ namespace SDDM {
         // the airlock: only the sensor opens a door at the start of
         // the race. The keyboard channel is born on the first
         // password submission (submitPassword) — an always-open
-        // keyboard door would have to be slammed on every sensor
-        // victory, and PAM counts slammed doors as failures
-        // (the ghost-failure experiment of 12 nov.)
+        // keyboard door would have to be cancelled on every sensor
+        // victory, and PAM counts a cancelled conversation as a
+        // failure (ghost failures in the system counter)
 
         // the fingerprint channel exists when the system has
         // something to verify: a birth decision, never a display
@@ -518,12 +511,12 @@ namespace SDDM {
                 return;
             }
 
-            // a REFUSED finger is the only honest death (the 16
-            // nov. rule): it alone consumes the budget. A window
-            // that timed out untouched is a quiet non-event — no
-            // wince, no budget — and it reborns at once: the
-            // sensor stays warm, the stage never flickers, watching
-            // the greeter looks like nothing ever happens
+            // a REFUSED finger is the only honest death: it alone
+            // consumes the budget. A window that timed out
+            // untouched is a quiet non-event — no feedback, no
+            // budget — and it reborns at once: the sensor stays
+            // warm, the stage never flickers, watching the greeter
+            // looks like nothing ever happens
             if (!refused) {
                 if (fingerprintAvailable(m_user))
                     m_fingerprintChannel = spawnChannel(AuthChannel::Fingerprint);
@@ -562,18 +555,13 @@ namespace SDDM {
         m_pendingPassword.clear();
         publishStage();
 
-        // the black bridge (14 nov.) keeps only its ORDER today: the
-        // success is announced to the greeter BEFORE the session
-        // exists (the announcement once made after the launch could
-        // never render: the session's compositor takes the DRM master
-        // and the greeter's outputs die in the same second).
-        // The 900 ms fade hold born with the bridge is GONE (the
-        // human's call, 15 nov., after the millisecond trace showed
-        // the whole perceived login delay was this aesthetic pause:
-        // the authentication is done in ~24 ms, the session start
-        // takes ~50 more -- no animation is worth a nine-tenths of a
-        // second wait on every login, fingerprint included). No hold:
-        // the winner proceeds the moment the announcement is out
+        // announce success to the greeter BEFORE the session exists:
+        // an announcement made after the launch could never render,
+        // because the session's compositor takes the DRM master and
+        // the greeter's outputs die the same second. No hold, no
+        // animation: whatever plays here would delay every login by
+        // its full duration — the winner proceeds the moment the
+        // announcement is out
         if (m_socket)
             Q_EMIT loginSucceeded(m_socket);
 
@@ -601,10 +589,9 @@ namespace SDDM {
         // for this user? What the greeter displays always comes from
         // the conversation itself, never from here
         //
-        // names read from the running fprintd on this machine
-        // (11 nov., busctl introspection): bus name and paths carry a
-        // capital F, the device is resolved through the manager, never
-        // hardcoded — this machine answers /net/reactivated/Fprint/Device/0
+        // the bus name and object paths carry a capital F
+        // ("net.reactivated.Fprint"); the device is resolved through
+        // the manager, never hardcoded
         const QDBusConnection bus = QDBusConnection::systemBus();
         QDBusInterface manager(QStringLiteral("net.reactivated.Fprint"),
                                QStringLiteral("/net/reactivated/Fprint/Manager"),

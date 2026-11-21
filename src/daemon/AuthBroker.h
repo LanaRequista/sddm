@@ -72,8 +72,8 @@ namespace SDDM {
 
         // the user shown by the greeter changed (or is confirmed at
         // display): spawn the applicable channels. Confirming the
-        // user already running is a no-op — nothing restarts for
-        // free, the burst lesson. A different user shuts the current
+        // user already running is a no-op — nothing restarts on a
+        // repeated selection (E3). A different user shuts the current
         // channels down first: one PAM conversation belongs to one
         // user, it cannot be recycled.
         void userChosen(const QString &user, const Session &session, QLocalSocket *socket);
@@ -99,10 +99,9 @@ namespace SDDM {
         // (keyboard only), "" (no race); published at every transition
         void authStage(QLocalSocket *socket, const QString &stage);
         // a typed event: a live race lost a fingerprint verify
-        // window to an honest mismatch (a bad swipe). Published
-        // instead of text patterns: themes react to the CODE and
-        // display the raw PAM message verbatim, fully
-        // language-independent (the 15 nov. decision)
+        // window to an honest mismatch (a bad swipe). Themes react
+        // to this code and display the raw PAM message verbatim —
+        // language-independent by construction, no text matching
         void sensorVerifyFailed(QLocalSocket *socket);
 
         // the winner's session started (the greeter may go) or
@@ -117,14 +116,13 @@ namespace SDDM {
         void onError(AuthChannel *channel, const QString &text, Auth::Error type);
         void onRequestChanged(AuthChannel *channel);
         void onSessionFinished(AuthChannel *channel, Auth::HelperExitStatus status);
-        // fprintd has two dialects (the 15 nov. live lesson): the
-        // modern API announces VerifyResult(bool result, QString
-        // error); the legacy API many installs still serve (fprintd
-        // 1.94 on this machine, confirmed by busctl) announces
-        // VerifyStatus(QString result, bool done). SAME native
+        // fprintd has two dialects for the same verdict: the modern
+        // API announces VerifyResult(bool result, QString error);
+        // the legacy API still served by many installs announces
+        // VerifyStatus(QString result, bool done). Same native
         // codes, opposite argument order — a Qt D-Bus connect
         // matches on name AND derived signature, so one wrong slot
-        // signature means the signal is silently NEVER delivered.
+        // signature means the signal is silently never delivered.
         // The broker subscribes to both; both hands the bare code to
         // the single classifier below
         void onVerifyStatus(const QString &result, bool done);
@@ -185,12 +183,11 @@ namespace SDDM {
         QString m_verifyDevicePath;
 
         // one PAM sentence from the fingerprint channel is displayed
-        // ONCE per race: byte-identity, no linguistics, no semantics
-        // -- the rebirth cycle of idle verify windows must stay
-        // invisible (the 16 nov. rule), so the repeated "Placez
-        // votre doigt" of each new window never reaches the
-        // greeter's notification row again. Classification still
-        // runs on every copy, display alone is filtered
+        // ONCE per race: the rebirth cycle of idle verify windows
+        // must stay invisible (its repeated hint would bounce the
+        // greeter's notification row), so the same sentence of each
+        // new window never reaches the display again. Classification
+        // still runs on every copy, display alone is filtered
         QSet<QString> m_shownFingerMessages;
         // the password of an airlock submission, waiting for the
         // keyboard channel to hold its prompt; empty outside the
