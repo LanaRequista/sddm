@@ -126,16 +126,17 @@ namespace SDDM {
             return;
         }
 
-        // the airlock (lazy keyboard channel): no door is open, the
-        // submission opens one. The password waits for the newborn
-        // channel to hold its prompt (onRequestChanged delivers it);
-        // if the birth fails nothing respawns by itself — the next
-        // Enter retries
+        // an empty submission opens nothing: no channel is born
+        // from an empty password
         if (password.isEmpty()) {
             qWarning() << "AuthBroker: empty password, not opening a keyboard channel";
             return;
         }
 
+        // the airlock: no keyboard door is open, the submission opens
+        // one. The password waits for the newborn channel to hold its
+        // prompt (onRequestChanged delivers it); if the birth fails
+        // nothing respawns by itself — the next Enter retries
         m_pendingPassword = password;
         AuthChannel *channel = spawnChannel(AuthChannel::Keyboard);
         if (!channel) {
