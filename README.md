@@ -16,23 +16,3 @@ Inversement, se rendre compte que le capteur d'empreinte ne fonctionne pas bien 
 
 Ce projet est aussi pour moi l'opportunité d'apprendre à utiliser de façon intelligente l'aide agentique IA afin de compenser un manque d'agilité dans le code ainsi qu'un manque de temps à consacrer aux projets open source, bien que ce soit pourtant une envie très ancienne et correspondant profondément à mes principes et valeurs.
 L'utilisation de l'IA je l'espère permettra à des personnes qui comme moi on une formation sérieuse en informatique (modélisation, langage, connaissance technique théoriques) mais n'ont pas l'expérience suffisante ou la possibilité de consacrer le temps nécessaire pour payer le ticket d'entrée qui est très élevé en ce domaine.
-
-Difficulté du projet :
-====================
-la problématique principale est que la construction du dialogue entre SDDM et PAM se fasse via une ouverture de cession qui est séquentielle.
-Cela touche à l'architecture même du processus plasma d'authentification.
-J'ai pris les deux orientation alternatives et même complémentaires à terme suivantes :
-1) raccourcir la séquence de reconnaissance d'empreinte qui et outrageusement grande actuellement (30s) et proposer un cycle rapide en pointillé d'ouverture de séquence de reconnaissance d'empreinte que quelques millisecondes (avec un paramétrage de calibrage) et proposer un délai de relance de la séquence d'empreinte via un délai rechargeable tant que l'utilisateur tape quelque chose dans la zone "mot de passe".
-2) Lancer deux PAM concurrents :
-   - l'un écoutant le capteur
-   - l'autre écoutant le clavier
-
-le premier des deux PAM ouverts qui réussit ouvre la cession plasma, l'autre devra être fermée proprement ou se terminer "dans le vide" 
-=> c'est un point ouvert pour l'instant afin de ne pas créer un autre problème de sécurité ou de pollution du système.
-
-3) optionnel à valider par la pratique si c'est intéressant:
-intégration proprement dans SDDM de façon que n'importe quel thème construit dessus pourra réutiliser de façon transparente les améliorations :
-   - usage d'un écran d'accueil qui change selon le type d'authentification utilisé
-   - utilisation d'un logo empreinte ou clavier pour signifier à l'utilisateur ce qui est actuellement écouté
-
-Ces orientations sont les orientations actuelles, elles seront validées par la pratique avant d'être publiées.
