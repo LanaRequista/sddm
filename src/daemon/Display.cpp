@@ -377,10 +377,11 @@ namespace SDDM {
             return;
         }
 
-        // the legacy login has the last word: a running channel race
-        // is stopped first, nothing may compete with what the
-        // greeter explicitly submitted
-        if (m_broker->state() == AuthBroker::Running)
+        // the legacy login has the last word: the broker stops
+        // whenever it holds anything at all — a running race, or a
+        // resolved one whose session is opening — nothing may
+        // compete with what the greeter explicitly submitted
+        if (m_broker->state() != AuthBroker::Idle)
             m_broker->stop();
 
         // authenticate; report the failure to the greeter instead of

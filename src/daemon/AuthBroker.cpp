@@ -56,6 +56,16 @@ namespace SDDM {
     }
 
     void AuthBroker::userChosen(const QString &user, const Session &session, QLocalSocket *socket) {
+        // once the race is decided nothing new may spawn here: the
+        // winner is opening its session, the greeter is leaving.
+        // First line of defense: a resolved race is sacred, it
+        // cannot be stopped from below either (the stop() of a
+        // user switch must never reach the winner)
+        if (m_state == Resolved) {
+            qWarning() << "AuthBroker: login request after a resolved race, ignoring";
+            return;
+        }
+
         // a different user ends the current channels first: a PAM
         // conversation belongs to one user and cannot be recycled
         if (user != m_user && (m_fingerprintChannel || m_keyboardChannel))
@@ -66,13 +76,6 @@ namespace SDDM {
         // field ready, the race stays as it is
         if (user == m_user && m_state == Running) {
             m_socket = socket;
-            return;
-        }
-
-        // once the race is decided nothing new may spawn here: the
-        // winner is opening its session, the greeter is leaving
-        if (m_state == Resolved) {
-            qWarning() << "AuthBroker: login request after a resolved race, ignoring";
             return;
         }
 
