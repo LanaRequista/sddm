@@ -57,8 +57,7 @@ namespace SDDM {
         // ran. A TYPED event, never text: the daemon alone knows
         // which channel spoke, so themes react to a code instead of
         // pattern-matching PAM sentences in one language among
-        // hundreds (the 15 nov. decision, extending the 9 nov.
-        // msg_style rule)
+        // hundreds
         SensorVerifyFailed
     };
 

@@ -403,7 +403,7 @@ namespace SDDM {
         // the broker spawns the applicable channels: fingerprint when
         // the system has enrolled fingers, keyboard always. It never
         // restarts anything for the user whose channels already run —
-        // the burst lesson
+        // a respawn burst would kill live helpers for nothing
         m_broker->userChosen(user, session, socket);
     }
 

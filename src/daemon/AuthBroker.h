@@ -2,11 +2,13 @@
  * The authentication broker: the single authority coordinating the
  * authentication channels of the user on screen.
  *
- * It spawns one channel per applicable method (fingerprint, keyboard),
- * listens to their state, adjudicates the race (first authenticated
- * channel wins, no statistics), shuts the losers down and gives the
- * single go-ahead. Channels never coordinate anything and never talk
- * to each other; the greeter never sees them.
+ * It spawns the fingerprint channel when the user has enrolled
+ * prints, keeps it alive through its rebirth policy, adjudicates
+ * the race (first authenticated channel wins, no statistics),
+ * shuts the losers down and gives the single go-ahead. The
+ * keyboard channel is LAZY — see below. Channels never coordinate
+ * anything and never talk to each other; the greeter never sees
+ * them.
  *
  * The keyboard channel is LAZY (the airlock): it is born on the
  * first password submission, not at the opening of the race — a race

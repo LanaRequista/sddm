@@ -64,10 +64,11 @@ namespace SDDM {
         State state() const;
 
         // true when this channel ever saw activity of its method (a
-        // PAM request, a message, an error) — a channel dying without
+        // PAM request, an info message) — a channel dying without
         // ever engaging died of a deterministic cause (refused birth,
         // locked account, missing device): the broker pauses instead
-        // of recreating it in a hot loop
+        // of recreating it in a hot loop. An error alone does NOT
+        // engage (a faillock denial must keep the slow-rebirth pause)
         bool engaged() const;
 
         // why a fingerprint channel died, told by the broker from the
@@ -117,9 +118,10 @@ namespace SDDM {
         void error(SDDM::AuthChannel *channel, const QString &message, SDDM::Auth::Error type);
         void requestChanged(SDDM::AuthChannel *channel);
 
-        // the session of this channel's helper started (the
-        // greeter may go) or finished (logout): meaningful only
-        // for the winner
+        // the session of this channel's helper STARTED; meaningful
+        // only for the winner. Reported on success only: a session
+        // that failed to start is reported through sessionFinished
+        // (HelperExitStatus), when the helper exits
         void sessionStarted(SDDM::AuthChannel *channel, bool success);
         void sessionFinished(SDDM::AuthChannel *channel, Auth::HelperExitStatus status);
 
@@ -148,8 +150,8 @@ namespace SDDM {
         // REFUSED (a mismatch), as opposed to a verify window timing
         // out untouched. Set by the broker from fprintd's NATIVE
         // D-Bus codes (verify-no-match / verify-timeout) -- the
-        // engine classifies machines' codes, never translated PAM
-        // sentences (the 15 nov. rule, closing the 16 nov. debt)
+        // engine classifies machine codes, never translated PAM
+        // sentences
         bool m_refused = false;
 
         // the fingerprint channel's last window expired without a

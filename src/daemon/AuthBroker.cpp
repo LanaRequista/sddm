@@ -450,9 +450,11 @@ namespace SDDM {
         connect(channel, &AuthChannel::sessionFinished, this, &AuthBroker::onSessionFinished);
 
         if (!channel->start(m_user, m_session)) {
-            // stillborn: a non-event, it is already dead and already
-            // reported as such to onStateChanged through the channels
-            // of the broker; nothing else moves
+            // stillborn: a non-event and a silent one — the channel
+            // muted itself (silence()) before dying, so no
+            // stateChanged ever reaches the broker; the caller sees
+            // the nullptr and owns the consequence (pending password
+            // dropped, nothing reborn)
             channel->deleteLater();
             return nullptr;
         }
@@ -482,11 +484,14 @@ namespace SDDM {
             return;
         }
 
-        // a channel is always open: a dead one is recreated at once.
-        // The user never faces a screen where he cannot authenticate —
-        // SDDM does not own the right to lock him out, the counters
-        // and locks of the system are shown verbatim, they are not
-        // implemented twice here.
+        // the rebirth policy, kind by kind: the sensor reborns after
+        // every death unless its budget is spent; the keyboard does
+        // not reborn on its own (the airlock rule: only a submission,
+        // a human gesture, opens a new door). The user never faces a
+        // screen where he cannot authenticate — SDDM does not own
+        // the right to lock him out, the counters and locks of the
+        // system are shown verbatim, they are not implemented twice
+        // here.
         if (channel->type() == AuthChannel::Keyboard) {
             // the airlock closes again: a dead keyboard channel is
             // NOT recreated here — the death of a conversation is an

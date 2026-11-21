@@ -48,10 +48,10 @@ namespace SDDM {
             // engage: a locked account answers with a bare faillock
             // error before anything ran, and honouring it would
             // relaunch a hot rebirth loop instead of the
-            // deterministic 30 s pause. (The assignments were lost on
-            // 11 nov. by the edit tool: every sensor death behaved
-            // as deterministic — cold sensor, exhausted-budget
-            // policies never triggering.)
+            // deterministic 30 s pause: without this flag, every
+            // sensor death would look deterministic (cold sensor,
+            // exhausted budget) and the slow-rebirth policies
+            // would never trigger
             m_engaged = true;
             if (!m_silenced)
                 Q_EMIT requestChanged(this);
@@ -160,8 +160,8 @@ namespace SDDM {
         // answer IS completed here: done() writes the response to
         // the helper — handleRequest() only knows how to HOLD a
         // password prompt, calling it here would hold the answer
-        // forever and the submission would never reach PAM (the
-        // 22:17 live-test bug: Enter received, strictly nothing sent)
+        // forever and the submission would never reach PAM
+        // (Enter received, strictly nothing sent)
         bool served = false;
         AuthRequest *request = m_auth->request();
         for (AuthPrompt *prompt : request->prompts()) {
@@ -249,7 +249,7 @@ namespace SDDM {
         if (m_winner) {
             // the winner's exit means its session is over (logout)
             // or failed to start: the display cycle restarts a whole
-            // greeter from scratch (the decision of the 12 nov.)
+            // greeter from scratch
             Q_EMIT sessionFinished(this, status);
             setState(Dead);
             return;

@@ -44,7 +44,7 @@ Rectangle {
     // selection changes (avatar bursts) coalesce here: only the last one
     // survives the debounce window, so one login attempt is made per
     // stable selection instead of one per click — each cancel-and-
-    // restart cycle kills a helper and races a late success (19:43)
+    // restart cycle kills a helper and races a late success
     property string pendingConversationUser: ""
 
     function requestConversation(userName) {
@@ -155,8 +155,8 @@ Rectangle {
         anchors.fill: parent
         color: "transparent"
         // one entrance: the interactive greeter lives on the primary
-        // screen only, the other monitors show the background (the
-        // 12 nov. decision: one expected action, one door)
+        // screen only, the other monitors show the background (one
+        // expected action, one door)
         visible: primaryScreen
 
         Component {

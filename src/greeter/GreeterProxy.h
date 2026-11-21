@@ -92,9 +92,9 @@ namespace SDDM {
         void socketDisconnected();
         void loginFailed();
         void loginSucceeded();
-        // typed event (15 nov.): the sensor lost a verify window to
-        // an honest mismatch while the race ran — themes wince on
-        // this code, they never parse the PAM message text
+        // typed event: the sensor lost a verify window to an honest
+        // mismatch while the race ran — themes wince on this code,
+        // they never parse the PAM message text
         void sensorVerifyFailed();
 
     private:

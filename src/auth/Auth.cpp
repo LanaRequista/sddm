@@ -418,8 +418,8 @@ namespace SDDM {
 
         // the helper already authenticated and is about to open the user
         // session: cancelling at this point would kill a login that
-        // succeeded — let it run, the greeter is stopped when the
-        // session starts
+        // succeeded — let the helper run and let its owner decide
+        // what becomes of the session it opens
         if (d->authenticated) {
             qWarning("Auth: cancel requested after successful authentication, ignoring");
             return;
@@ -442,7 +442,7 @@ namespace SDDM {
         // event loops that process the helper's socket messages, so a
         // login may have WON during the wait (the finger matched right
         // then); d->authenticated is updated live by that same loop.
-        // Killing here would destroy a successful login — the 19:43 race.
+        // Killing here would destroy a successful login
         if (d->authenticated) {
             qWarning("Auth: helper authenticated while cancelling, aborting the kill");
             return;
